@@ -14,6 +14,7 @@
 #include <QTimer>
 
 #include "picture_generator.h"
+#include "filter.h"
 
 class MainWindow : public QMainWindow
 {
@@ -36,6 +37,7 @@ private:
     void updateImageDisplays();
     
     PictureGenerator __pg_obj;
+    MaskFilter __filter;
 
     QWidget *centralWidget;
     QLabel *imageLabel1, *imageLabel2, *imageLabel3;

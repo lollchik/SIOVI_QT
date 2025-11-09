@@ -14,6 +14,7 @@ qt5_wrap_cpp(MOC_SOURCES
                 main_window.h 
                 noise_generator.h
                 picture_generator.h
+                filter.h
 )
 
 set(SOURCES
@@ -21,6 +22,7 @@ set(SOURCES
     main_window.cpp
     noise_generator.cpp
     picture_generator.cpp
+    filter.cpp
     ${MOC_SOURCES}
 )
 

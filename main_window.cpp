@@ -121,19 +121,19 @@ void MainWindow::generateInertialNoise(QImage &image)
 {
     int width = image.width();
     int height = image.height();
-    
+
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            int noise = random.bounded(256);
-            int r = noise;
-            int g = noise;
-            int b = noise;
+            // Получаем текущий цвет пикселя
+            QColor originalColor = image.pixelColor(x, y);
+            int r = originalColor.red();
+            int g = originalColor.green();
+            int b = originalColor.blue();
             
-            if (random.bounded(100) < 30) {
-                r = qMin(255, noise + random.bounded(50));
-                g = qMin(255, noise + random.bounded(50));
-                b = qMin(255, noise + random.bounded(50));
-            }
+            int noise = random.bounded(256);
+            r = qMin(255, (int)(r + noise));
+            g = qMin(255, (int)(g + noise));
+            b = qMin(255, (int)(b + noise));
             
             image.setPixelColor(x, y, QColor(r, g, b));
         }
@@ -145,10 +145,8 @@ void MainWindow::generateImpulseNoise(QImage &image)
     int width = image.width();
     int height = image.height();
 
-    image.fill(Qt::black);
-    
-    int numImpulses = width * height / 50; 
-    
+    int numImpulses = width * height / 50;
+
     for (int i = 0; i < numImpulses; ++i) {
         int x = random.bounded(width);
         int y = random.bounded(height);
@@ -161,8 +159,14 @@ void MainWindow::generateImpulseNoise(QImage &image)
                 int ny = y + dy;
                 
                 if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                    if (random.bounded(100) < 80) { 
-                        image.setPixelColor(nx, ny, QColor(brightness, brightness, brightness));
+                    if (random.bounded(100) < 80) {
+                        QColor originalColor = image.pixelColor(nx, ny);
+                        
+                        int r = qMin(255, (originalColor.red() + brightness) / 2);
+                        int g = qMin(255, (originalColor.green() + brightness) / 2);
+                        int b = qMin(255, (originalColor.blue() + brightness) / 2);
+                        
+                        image.setPixelColor(nx, ny, QColor(r, g, b));
                     }
                 }
             }
@@ -173,13 +177,12 @@ void MainWindow::generateImpulseNoise(QImage &image)
 void MainWindow::updateImageDisplays()
 {
     QImage image1(300, 200, QImage::Format_RGB32);
-        __pg_obj.generateSineWave(image1);
+        __pg_obj.generateGeometricPattern(image1);
 
     QImage image2(300, 200, QImage::Format_RGB32);
-
+    image2 = image1;
     QImage image3(300, 200, QImage::Format_RGB32);
-        __pg_obj.generatePixelArt(image3);
-
+    
     
     if (noiseType == 0) {
         // Инертный шум
@@ -190,6 +193,7 @@ void MainWindow::updateImageDisplays()
     
     imageLabel1->setPixmap(QPixmap::fromImage(image1));
     imageLabel2->setPixmap(QPixmap::fromImage(image2));
+    image3 = __filter.apply(image2);
     imageLabel3->setPixmap(QPixmap::fromImage(image3));
 
 }
