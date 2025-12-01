@@ -1,5 +1,8 @@
 #include "main_window.h"
 
+#define low = 0.25
+#define medium = 0.5
+#define hight = 0.75
 
 
 
@@ -13,9 +16,9 @@ void MainWindow::setupUI()
     imageLabel2 = new QLabel(this);
     imageLabel3 = new QLabel(this);
     
-    imageLabel1->setFixedSize(300, 200);
-    imageLabel2->setFixedSize(300, 200);
-    imageLabel3->setFixedSize(300, 200);
+    // imageLabel1->setFixedSize(300, 200);
+    // imageLabel2->setFixedSize(300, 200);
+    // imageLabel3->setFixedSize(300, 200);
     
     imageLabel1->setAlignment(Qt::AlignCenter);
     imageLabel2->setAlignment(Qt::AlignCenter);
@@ -30,9 +33,11 @@ void MainWindow::setupUI()
     imageLabel3->setStyleSheet("QLabel { background-color: #f0f0f0; border: 1px solid #ccc; }");
     
     // Создание кнопок для выбора типа шума
+    downloadButton = new QPushButton("Загрузка изобрадения", this);
     additiveNoiseButton = new QPushButton("Аддитивный шум", this);
     impulseNoiseButton = new QPushButton("Импульсный шум", this);
     
+    downloadButton->setFixedSize(150, 40);
     additiveNoiseButton->setFixedSize(150, 40);
     impulseNoiseButton->setFixedSize(150, 40);
     
@@ -83,10 +88,12 @@ void MainWindow::setupUI()
     imagesLayout->addWidget(imageLabel2);
     imagesLayout->addWidget(imageLabel3);
     
-    noiseTypeLayout = new QHBoxLayout();
-    noiseTypeLayout->addWidget(additiveNoiseButton);
-    noiseTypeLayout->addWidget(impulseNoiseButton);
-    noiseTypeLayout->setAlignment(Qt::AlignCenter);
+    buttonsLayuout = new QHBoxLayout();
+    buttonsLayuout->addWidget(downloadButton);
+    buttonsLayuout->addWidget(additiveNoiseButton);
+    buttonsLayuout->addWidget(impulseNoiseButton);
+
+    buttonsLayuout->setAlignment(Qt::AlignCenter);
     
     parametersLayout = new QHBoxLayout();
     parametersLayout->addWidget(additiveGroup);
@@ -94,7 +101,7 @@ void MainWindow::setupUI()
     
     mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->addLayout(imagesLayout);
-    mainLayout->addLayout(noiseTypeLayout);
+    mainLayout->addLayout(buttonsLayuout);
     mainLayout->addLayout(parametersLayout);
     mainLayout->addWidget(applyNoiseButton, 0, Qt::AlignCenter);
     
@@ -102,6 +109,7 @@ void MainWindow::setupUI()
     impulseGroup->setVisible(false);
     
     // Подключение сигналов
+    connect(downloadButton, &QPushButton::clicked, this, &MainWindow::onDownloadNoiseClicked);
     connect(additiveNoiseButton, &QPushButton::clicked, this, &MainWindow::onAdditiveNoiseClicked);
     connect(impulseNoiseButton, &QPushButton::clicked, this, &MainWindow::onImpulseNoiseClicked);
     connect(applyNoiseButton, &QPushButton::clicked, this, &MainWindow::onApplyNoiseClicked);
@@ -117,6 +125,38 @@ void MainWindow::setupUI()
     updateImageDisplays();
 }
 
+
+void MainWindow::onDownloadNoiseClicked()
+{
+          // Открываем диалог выбора файла
+        QString filePath = QFileDialog::getOpenFileName(
+            this,
+            "Выберите изображение",
+            QDir::homePath(),  // Начинаем с домашней директории
+            "Изображения (*.png *.jpg *.jpeg *.bmp *.tiff *.gif);;Все файлы (*.*)"
+        );
+        
+        // Если пользователь не выбрал файл (нажал Cancel)
+        if (filePath.isEmpty()) {
+            qDebug() << "Пользователь отменил выбор файла";
+            return;
+        }
+        
+        qDebug() << "Выбран файл:" << filePath;
+        
+        // Загружаем изображение
+        if (image.load(filePath)) {
+            qDebug() << "Изображение успешно загружено";
+            qDebug() << "Размер:" << image.width() << "x" << image.height();
+            qDebug() << "Формат:" << image.format();
+        } else {
+            QMessageBox::critical(this, "Ошибка", 
+                "Не удалось загрузить изображение!\n"
+                "Проверьте путь и формат файла.");
+            qDebug() << "Ошибка загрузки изображения";
+        }
+    updateImageDisplays();
+}
 void MainWindow::onAdditiveNoiseClicked()
 {
     noiseType = 0;
@@ -190,57 +230,9 @@ double MainWindow::calculateMeanValue(const QImage &image)
     return sum / totalPixels;
 }
 
-void MainWindow::generateAdditiveNoise(QImage &image, double eta)
+QImage MainWindow::generateAdditiveNoise(QImage image)
 {
-    int width = image.width();
-    int height = image.height();
-    int N = width;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    
-    // Создание шумового поля
-    double **noiseField = new double*[height];
-    double MO_sh = 0.0;
-    
-    for (int y = 0; y < height; y++) {
-        noiseField[y] = new double[width];
-        for (int x = 0; x < width; x++) {
-            noiseField[y][x] = rg->bounded(256);
-            MO_sh += noiseField[y][x];
-        }
-    }
-    MO_sh /= (N * N);
-    
-    // Применение шума с компенсацией переполнения
-    double nu = 0.0;
-    
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int originalValue = qGray(image.pixel(x, y));
-            
-            double pix = originalValue + eta * (noiseField[y][x] - MO_sh) + nu;
-            
-            if (pix >= 0 && pix <= 255) {
-                int value = static_cast<int>(pix);
-                image.setPixel(x, y, qRgb(value, value, value));
-                nu = 0.0;
-            }
-            else if (pix > 255) {
-                image.setPixel(x, y, qRgb(255, 255, 255));
-                nu = pix - 255;
-            }
-            else {
-                image.setPixel(x, y, qRgb(0, 0, 0));
-                nu = -pix;
-            }
-        }
-    }
-    
-    // Освобождение памяти
-    for (int y = 0; y < height; y++) {
-        delete[] noiseField[y];
-    }
-    delete[] noiseField;
+   return NoiseGenerator().generateAdditiveNoise(image, noiseLevel, 7897);
 }
 
 void MainWindow::generateImpulseNoise(QImage &image, double eta, int type, int intensity)
@@ -492,28 +484,29 @@ void MainWindow::generateSaltAndPepperNoise(QImage &image, double eta, bool isLi
 void MainWindow::updateImageDisplays()
 {
     // Генерация исходного изображения
-    QImage image1(300, 200, QImage::Format_RGB32);
-    __pg_obj.generateGeometricPattern(image1);
+    // QImage image1(300, 200, QImage::Format_RGB32);
+    // __pg_obj.generateGeometricPattern(image1);
 
-    QImage image2 = image1.copy();
-    QImage image3(300, 200, QImage::Format_RGB32);
+    // QImage image2 = image1.copy();
+    // QImage image3(300, 200, QImage::Format_RGB32);
     
     // Применение выбранного шума
-    if (noiseType == 0) {
+    // if (noiseType == 0) {
         // Аддитивный шум
-        generateAdditiveNoise(image2, noiseLevel);
-    } else {
+        // generateAdditiveNoise(image2, noiseLevel);
+    // } else {
         // Импульсный шум
-        generateImpulseNoise(image2, noiseLevel, impulseNoiseType, impulseIntensity);
-    }
+        // generateImpulseNoise(image2, noiseLevel, impulseNoiseType, impulseIntensity);
+    // }
     
     // Отображение изображений
-    imageLabel1->setPixmap(QPixmap::fromImage(image1).scaled(300, 200, Qt::KeepAspectRatio));
-    imageLabel2->setPixmap(QPixmap::fromImage(image2).scaled(300, 200, Qt::KeepAspectRatio));
+    imageLabel1->setPixmap(QPixmap::fromImage(image).scaled(300, 200, Qt::KeepAspectRatio));
+    QImage image_noise = generateAdditiveNoise(image);
+    imageLabel2->setPixmap(QPixmap::fromImage(image_noise).scaled(300, 200, Qt::KeepAspectRatio));
     
     // Применение фильтра и отображение результата
-    image3 = __filter.apply(image2);
-    imageLabel3->setPixmap(QPixmap::fromImage(image3).scaled(300, 200, Qt::KeepAspectRatio));
+    // image3 = __filter.apply(image2);
+    imageLabel3->setPixmap(QPixmap::fromImage(image).scaled(300, 200, Qt::KeepAspectRatio));
 }
 
 // Вспомогательные функции для доступа к группам

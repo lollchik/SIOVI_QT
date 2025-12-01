@@ -6,8 +6,8 @@ class NoiseGenerator
 {
 private:
 public:
-    void generateImpulseNoise(QImage &image);
+    QImage generateAdditiveNoise(QImage& inputImage, double noiseLevel, quint32 seed = 0);
     void generateInertialNoise(QImage &image);
-    NoiseGenerator(/* args */);
-    ~NoiseGenerator();
+    // NoiseGenerator(/* args */);
+    // ~NoiseGenerator();
 };

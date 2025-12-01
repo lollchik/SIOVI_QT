@@ -23,12 +23,16 @@
 #include <QImage>
 #include <QPixmap>
 #include <QRandomGenerator>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QDir>
 #include <QDebug>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 
 #include "picture_generator.h"
+#include "noise_generator.h"
 #include "filter.h"
 
 class MainWindow : public QMainWindow
@@ -52,10 +56,13 @@ private slots:
     // void updateNoise();
 
 private:
+
+    QImage image;
     void setupUI();
     void generateInertialNoise(QImage &image, double eta);
 
-    void generateAdditiveNoise(QImage &image, double eta);
+    void onDownloadNoiseClicked();
+    QImage generateAdditiveNoise(QImage image);
     void onAdditiveNoiseClicked();
     QGroupBox* additiveGroup() const;
     QGroupBox* impulseGroup() const;
@@ -88,6 +95,7 @@ private:
     QLabel *imageLabel1;
     QLabel *imageLabel2;
     QLabel *imageLabel3;
+    QPushButton *downloadButton;
     QPushButton *additiveNoiseButton;
     QPushButton *impulseNoiseButton;
     QPushButton *applyNoiseButton;
@@ -99,7 +107,7 @@ private:
     QGroupBox *impulseGroupBox;
     QVBoxLayout *mainLayout;
     QHBoxLayout *imagesLayout;
-    QHBoxLayout *noiseTypeLayout;
+    QHBoxLayout *buttonsLayuout;
     QHBoxLayout *parametersLayout;
 
 
