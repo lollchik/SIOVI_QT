@@ -6,8 +6,12 @@
 #include <QDate>
 #include <QDebug>
 #include <iostream>
+#include <set>
 
 #define RANGE 256
+#define RANGE_STR_LOW 2
+#define RANGE_STR_HIGHT 5
+
 /**
  * @author Zhurckov G.S.
  * @brief Генерирует аддитивный шум на изображении с заданным уровнем энергии
@@ -17,19 +21,19 @@
  * @return Зашумленное изображение  (аддитивный шум)
  *
  * Алгоритм соответствует спецификации:
- * 1. Создается шумовое поле 512x512 со случайными значениями
+ * 1. Создается шумовое поле WxH со случайными значениями (wight x hight)
  * 2. Вычисляется математическое ожидание шумового поля
  * 3. Для каждого пикселя применяется формула с контролем диапазона [0, 255]
  * 4. Осуществляется перенос переполнения/недополнения (error diffusion)
  */
 QImage NoiseGenerator::generateAdditiveNoise(QImage &inputImage, double noiseLevel, quint32 seed)
 {    
-    QImage image = inputImage.convertToFormat(QImage::Format_ARGB32);
-
+    QImage image = inputImage.convertToFormat(QImage::Format_Grayscale8);
+    
     int i_width = image.width();    // width
     int i_height = image.height();    // height
     const int N2 = i_width * i_height;
-
+    
     //ГПСЧ init
     QRandomGenerator randGenerator;
     if (seed == 0)
@@ -40,232 +44,323 @@ QImage NoiseGenerator::generateAdditiveNoise(QImage &inputImage, double noiseLev
     {   // используем зхаданное значение для возможости воспроизведления 
         randGenerator.seed(seed);
     }
+
     //СОЗДАНИЕ ШУМОВОГО ПОЛЯ
     // Шумовое поле f_Ш(x,y)
-    QVector<QVector<double>> noiseField(i_width, QVector<double>(i_height, 0.0));
-    // Максимальный диапазон для равномерного распределения
-    
-    // Заполняем шумовое поле случайными значениями с равномерным распределением
-    // Функция RANDOM(RANGE) возвращает значения в диапазоне [0, RANGE-1]
+    QVector<QVector<double>> noiseField(i_width, QVector<double>(i_height, 0.0));    
     for (int x = 0; x < i_width; ++x)
     {
         for (int y = 0; y < i_height; ++y)
         {
-            noiseField[x][y] = randGenerator.bounded(RANGE);
+            noiseField[x][y] = randGenerator.bounded(RANGE); //rand 0 - 255
         }
     }
+    qDebug() << "ШАГ 1 - Заполнили шумовое поле";
+
     //tech output
     // for(auto elem : noiseField)
     //     for(auto el : elem)
     //         std::cout<<el<<std::endl;
-
-    // ВЫЧИСЛЕНИЕ МАТЕМАТИЧЕСКОГО ОЖИДАНИЯ ШУМОВОГО ПОЛЯ 
+    
+    // ВЫЧИСЛЕНИЕ МАТЕМАТИЧЕСКОГО ОЖИДАНИЯ ШУМОВОГО ПОЛЯ
     // MO_ш = (1/N²) * ΣΣ f_Ш(x,y)
-    double moNoise = 0.0; // MO_ш
+    double mo_noise = 0.0; // MO_ш
     for (int x = 0; x < i_width; ++x)
     {
         for (int y = 0; y < i_height; ++y)
         {
-            moNoise += noiseField[x][y];
+            mo_noise += noiseField[x][y];
         }
     }
-    moNoise /= N2; // Деление на N²
-
-    qDebug() << "Математическое ожидание шумового поля (MO_ш):" << moNoise;
-
-    // ВЫЧИСЛЕНИЕ ЭНЕРГИИ ИСХОДНОГО ИЗОБРАЖЕНИЯ (остановился на рефакторинге тут)
-    // B_исх = ΣΣ [f_исх(x,y)]²
-    double energyOrig = 0.0; // B_исх
-    for (int x = 0; x < i_width; ++x)
-    {
-        for (int y = 0; y < i_height; ++y)
-        {
-            QColor color = image.pixelColor(x, y);
-            // Используем яркость пикселя (можно использовать один из каналов или яркость)
-            int brightness = qGray(color.rgb());
-            energyOrig += brightness * brightness;
-        }
-    }
-
-    qDebug() << "Энергия исходного изображения (B_исх):" << energyOrig;
-
-    // РАСЧЕТ ЭНЕРГИИ ШУМА 
-    // B_ш = η * B_исх
-    double energyNoise = noiseLevel * energyOrig;
-    qDebug() << "Целевая энергия шума (B_ш):" << energyNoise;
-
-    // ПРИМЕНЕНИЕ АДДИТИВНОГО ШУМА К ИЗОБРАЖЕНИЮ 
+    mo_noise = mo_noise / N2;
+    qDebug() << "ШАГ 2 - Математическое ожидание шумового поля (MO_ш):" << mo_noise;
+    
+    // ПРИМЕНЕНИЕ АДДИТИВНОГО ШУМА К ИЗОБРАЖЕНИЮ
     QImage noisyImage = image.copy();
-    double cumulativeError = 0.0; // ν = err (накопленная ошибка)
-
+    double v_err = 0.0; // ν_err накопленная ошибка
     // Временная переменная для расчета реальной энергии добавленного шума
-    double actualNoiseEnergy = 0.0;
-
+    // double actualNoiseEnergy = 0.0;
+    
     for (int x = 0; x < i_width; ++x)
     {
         for (int y = 0; y < i_height; ++y)
         {
-            // Яркость исходного пикселя
-            QColor origColor = image.pixelColor(x, y);
-            int origBrightness = qGray(origColor.rgb());
-
-            // Вычисляем значение пикселя с шумом согласно формуле:
+            QRgb origColor = image.pixel(x, y);
+            int original_brightness = qGray(origColor);
+            // Значение пикселя с шумом
             // pix = f_исх(x,y) + η * (f_ш(x,y) - MO_ш) + ν
-            double pixValue = origBrightness +
-                              noiseLevel * (noiseField[x][y] - moNoise) +
-                              cumulativeError;
-
-            // Применяем ограничение диапазона [0, 255]
-            int finalBrightness;
-
-            if (pixValue < 0)
+            double pix_value = original_brightness +
+                              noiseLevel * (noiseField[x][y] - mo_noise) +
+                              v_err;
+            
+            // ограничения диапазона [0, 255]
+            int final_brightness;
+            if (pix_value < 0)
             {
                 // Случай pix < 0
-                finalBrightness = 0;
-                cumulativeError = -pixValue; // ν := -pix (положительная величина)
+                final_brightness = 0;
+                v_err = -pix_value;
             }
-            else if (pixValue > 255)
+            else if (pix_value > 255)
             {
                 // Случай pix > 255
-                finalBrightness = 255;
-                cumulativeError = pixValue - 255; // ν := pix - 255 (положительная величина)
+                final_brightness = 255;
+                v_err = pix_value - 255;
             }
             else
             {
                 // Случай 0 <= pix <= 255
-                finalBrightness = static_cast<int>(pixValue);
-                cumulativeError = 0.0; // Сбрасываем ошибку, если значение в диапазоне
+                final_brightness = static_cast<int>(pix_value);
+                v_err = 0.0;
             }
-
-            // Устанавливаем новый пиксель
-            // Сохраняем альфа-канал и цветовую модель
+            //установка пикселя
             if (image.hasAlphaChannel())
             {
-                noisyImage.setPixelColor(x, y, QColor(finalBrightness, finalBrightness, finalBrightness, origColor.alpha()));
+                noisyImage.setPixel(x, y, qRgb(final_brightness, final_brightness, final_brightness));
             }
             else
             {
-                noisyImage.setPixelColor(x, y, QColor(finalBrightness, finalBrightness, finalBrightness));
+                noisyImage.setPixel(x, y, qRgb(final_brightness, final_brightness, final_brightness));
             }
-
+            
             // Вычисляем реальную добавленную энергию шума для этого пикселя
-            double addedNoise = finalBrightness - origBrightness;
-            actualNoiseEnergy += addedNoise * addedNoise;
+            // double addedNoise = final_brightness - original_brightness;
+            // actualNoiseEnergy += abs(addedNoise) * abs(addedNoise);
         }
     }
-
-    // ВЫЧИСЛЕНИЕ ФАКТИЧЕСКОГО УРОВНЯ ШУМА
-    double actualNoiseLevel = actualNoiseEnergy / energyOrig;
-    qDebug() << "Фактический уровень шума η (B_ш/B_исх):" << actualNoiseLevel;
+    
+    // // ВЫЧИСЛЕНИЕ ФАКТИЧЕСКОГО УРОВНЯ ШУМА
+    // double actualNoiseLevel =  actualNoiseEnergy / energyOrig;
+    // qDebug() << "Фактический уровень шума η (B_ш/B_исх):" << actualNoiseLevel;
     qDebug() << "Целевой уровень шума:" << noiseLevel;
-    qDebug() << "Разница:" << (actualNoiseLevel - noiseLevel);
-
-    // ВАЛИДАЦИЯ РЕЗУЛЬТАТА
-    if (qAbs(actualNoiseLevel - noiseLevel) > 0.01)
-    {
-        qWarning() << "Фактический уровень шума значительно отличается от целевого!"
-                   << "Возможно, требуется коррекция алгоритма.";
-    }
 
     return noisyImage;
 }
 
-// /**
-//  * @brief Вспомогательная функция для генерации аддитивного шума с предустановками
-//  * @param imagePath Путь к входному изображению
-//  * @param noiseLevels Список уровней шума для генерации
-//  * @param outputPrefix Префикс для имен выходных файлов
-//  */
-// void generateAdditiveNoiseExamples(const QString &imagePath,
-//                                    const QVector<double> &noiseLevels = {0.25, 0.5, 0.75},
-//                                    const QString &outputPrefix = "noisy_image")
-// {
-//     QImage inputImage(imagePath);
-//     if (inputImage.isNull())
-//     {
-//         qWarning() << "Не удалось загрузить изображение:" << imagePath;
-//         return;
-//     }
+/**
+ * @author Zhurckov G.S.
+ * @brief Генерирует импульсный шум на изображении с заданным уровнем энергии
+ * @param inputImage Входное изображение
+ * @param noiseLevel Уровень шума (0.25, 0.5, 0.75)
+ * @param type Тип импульсного шума (Salt, Pepper, SaltAndPepper)
+ * @param intensity Интенсивность шума (Point, Line)
+ * @param seed Начальное значение для ГПСЧ default(0 -> (new int))
+ * @return Зашумленное изображение (импульсный шум)
+ *
+ * Алгоритм соответствует спецификации:
+ * 1. Определяется тип импульсного шума и его интенсивность
+ * 2. Вычисляется энергия исходного изображения
+ * 3. Рассчитывается количество пикселей шума (KOL) в зависимости от типа
+ * 4. Для шума "соль и перец" вычисляется математическое ожидание шумового поля
+ * 5. Генерируются координаты шума и применяется шум к изображению
+ * 6. Для строкового шума генерируется линия заданной длины
+ */
+QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLevel, ImpulseNoiseType type, ImpulseNoiseIntensity intensity, quint32 seed)
+{
+    QImage image = inputImage.convertToFormat(QImage::Format_ARGB32);
+    QImage image_n = image.copy();
+    int i_width = image.width();
+    int i_height = image.height();
+    const int N2 = i_width * i_height;
 
-//     // Приводим к размеру 512x512, если необходимо
-//     if (inputImage.width() != 512 || inputImage.height() != 512)
-//     {
-//         inputImage = inputImage.scaled(512, 512, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-//         qDebug() << "Изображение масштабировано до 512x512";
-//     }
+    // ГПСЧ init
+    QRandomGenerator randGenerator;
+    if (seed == 0)
+    {
+        // используем мусор из памяти чтобы добится энтропии с использованием ГПСЧ
+        randGenerator.seed(*(new int));
+    }
+    else
+    {
+        // используем заданное значение для возможости воспроизведния
+        randGenerator.seed(seed);
+    }
 
-//     // Фиксированный seed для воспроизводимости результатов
-//     const quint32 seed = 12345;
+    if((type == ImpulseNoiseType::Salt) &&  (intensity == ImpulseNoiseIntensity::Point)){
+        // Вычисляем B_text (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        double targetEta = noiseLevel; // input η value        
+        double currentEta = 0.0; // curent η value
+        int  addedNoisePixels = 0; //nums of modified pixels
 
-//     for (double noiseLevel : noiseLevels)
-//     {
-//         QImage noisyImage = generateAdditiveNoise(inputImage, noiseLevel, seed);
+        std::set<std::pair<int, int>> x_y_set{};
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            if(x_y_set.find(std::make_pair(x,y)) != x_y_set.end()){
+                continue;
+            }
+            else{
+                x_y_set.insert(std::make_pair(x,y));
+            }
+            // Получаем текущее значение пикселя
+            int originalValue = qGray(image.pixel(x, y));
+            
+            // Рассчитываем вклад этого пикселя в η
+            double contribution = pow(255 - originalValue, 2);
+            double newEta = currentEta + ( contribution / B_ish );
+            
+            image_n.setPixel(x, y, qRgb(255, 255, 255)); // set "salt" pixel
+            addedNoisePixels++;
+            currentEta = newEta;
+                
+                // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
+                //          << "), добавлено:" << addedNoisePixels 
+                //          << ", η:" << currentEta
+                //          << ", need η:" << noiseLevel;
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Добавлено пикселей:" << addedNoisePixels;
+        qDebug() << "Общее η:" << currentEta;
+        qDebug() << "Плотность шума:" << (double)addedNoisePixels / N2;
+    }
 
-//         if (!noisyImage.isNull())
-//         {
-//             QString outputPath = QString("%1_η%2.png")
-//                                      .arg(outputPrefix)
-//                                      .arg(noiseLevel, 0, 'f', 2);
 
-//             if (noisyImage.save(outputPath))
-//             {
-//                 qDebug() << "Сохранено изображение с шумом:" << outputPath
-//                          << "η =" << noiseLevel;
-//             }
-//             else
-//             {
-//                 qWarning() << "Не удалось сохранить:" << outputPath;
-//             }
-//         }
-//     }
-// }
+    if((type == ImpulseNoiseType::Salt) &&  (intensity == ImpulseNoiseIntensity::Line)){
+        // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        // Целевое значение η (можно задать как параметр)
+        double targetEta = noiseLevel; // или другое значение
+        
+        // Добавляем шум до достижения целевого η
+        double currentEta = 0.0;
+        std::set<std::pair<int, int>> x_y_set{};
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            
+            int line_size = QRandomGenerator::global()->bounded(RANGE_STR_LOW, RANGE_STR_HIGHT);
+            
+            // Получаем текущее значение пикселя
+            if(x_y_set.find(std::make_pair(x,y)) == x_y_set.end()){
+                x_y_set.insert(std::make_pair(x,y));
+                for(int i = 0 ; i<line_size ; i++){
+                    int originalValue = qGray(image.pixel(x+i, y));
+                    // Рассчитываем вклад этого пикселя в η
+                    double contribution = pow(255 - originalValue, 2);
+                    double newEta = currentEta + ( contribution / B_ish );
+                    // Устанавливаем пиксель в 255 (белый)
+                    image_n.setPixel(x+i, y, qRgb(255, 255, 255));
+                    currentEta = newEta;
+                    // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
+                    //          << ", η:" << currentEta
+                    //          << ", need η:" << noiseLevel;
+                }
+                // qDebug() << "Добавлен шум в линию с начальной координатой (" << x << "," << y << ")"
+                // << " и длинной "<<line_size; 
+            }
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Общее η:" << currentEta;
+    }
 
-// /**
-//  * @brief Демонстрационная функция с подробными комментариями
-//  */
-// void demonstrateAdditiveNoise()
-// {
-//     qDebug() << "=== ДЕМОНСТРАЦИЯ АДДИТИВНОГО ШУМА ===";
-//     qDebug() << "Алгоритм работы:";
-//     qDebug() << "1. Инициализация генератора случайных чисел (RANDOMIZE)";
-//     qDebug() << "2. Создание шумового поля 512x512 со значениями 0-255";
-//     qDebug() << "3. Вычисление MO_ш - среднего значения шумового поля";
-//     qDebug() << "4. Расчет энергии исходного изображения B_исх";
-//     qDebug() << "5. Определение целевой энергии шума B_ш = η * B_исх";
-//     qDebug() << "6. Применение формулы: pix = f_исх + η*(f_ш - MO_ш) + ν";
-//     qDebug() << "7. Ограничение результата диапазоном [0, 255] с переносом ошибки";
-//     qDebug() << "8. Расчет фактического уровня шума для проверки точности";
+    if((type == ImpulseNoiseType::Pepper) &&  (intensity == ImpulseNoiseIntensity::Point)){
+        // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        // Целевое значение η (можно задать как параметр)
+        double targetEta = noiseLevel; // или другое значение
+        
+        // Добавляем шум до достижения целевого η
+        double currentEta = 0.0;
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            
+            // Получаем текущее значение пикселя
+            int originalValue = qGray(image.pixel(x, y));
+            
+            // Рассчитываем вклад этого пикселя в η
+            double contribution = pow(originalValue, 2);
+            double newEta = currentEta + ( contribution / B_ish );
+            
+            image_n.setPixel(x, y, qRgb(0, 0, 0));// set "pepper" pixel
+            currentEta = newEta;
+                
+            // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
+            //          << ", η:" << currentEta
+            //          << ", need η:" << noiseLevel;
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Общее η:" << currentEta;
+    }
 
-//     // Пример использования
-//     generateAdditiveNoiseExamples("input_image.png");
-// }
 
-// // Пример использования в основном коде:
-// int main(int argc, char *argv[])
-// {
-//     QCoreApplication app(argc, argv);
+    if((type == ImpulseNoiseType::Pepper) &&  (intensity == ImpulseNoiseIntensity::Line)){
+        // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        // Целевое значение η (можно задать как параметр)
+        double targetEta = noiseLevel; // или другое значение
+        
+        // Добавляем шум до достижения целевого η
+        double currentEta = 0.0;
+        std::set<std::pair<int, int>> x_y_set{};
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            int line_size = QRandomGenerator::global()->bounded(RANGE_STR_LOW, RANGE_STR_HIGHT);
+            // Получаем текущее значение пикселя
+            if(x_y_set.find(std::make_pair(x,y)) == x_y_set.end()){
+                x_y_set.insert(std::make_pair(x,y));
+                for(int i = 0 ; i<line_size ; i++){
+                    // Получаем текущее значение пикселя
+                    int originalValue = qGray(image.pixel(x+i, y));
+                    
+                    // Рассчитываем вклад этого пикселя в η
+                    double contribution = pow(originalValue, 2);
+                    double newEta = currentEta + ( contribution / B_ish );
+                    
+                    image_n.setPixel(x+i, y, qRgb(0, 0, 0));// set "pepper" pixel
+                    currentEta = newEta;
+                    // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
+                    //          << ", η:" << currentEta
+                    //          << ", need η:" << noiseLevel;
+                }
+                // qDebug() << "Добавлен шум в линию с начальной координатой (" << x << "," << y << ")"
+                // << " и длинной "<<line_size; 
+            }
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Общее η:" << currentEta;
 
-//     // Загружаем изображение
-//     QImage inputImage("path/to/your/image.png");
-
-//     if (inputImage.isNull())
-//     {
-//         qDebug() << "Не удалось загрузить изображение";
-//         return -1;
-//     }
-
-//     // Генерируем изображения с разным уровнем шума
-//     QImage noisyImage25 = generateAdditiveNoise(inputImage, 0.25);
-//     QImage noisyImage50 = generateAdditiveNoise(inputImage, 0.50);
-//     QImage noisyImage75 = generateAdditiveNoise(inputImage, 0.75);
-
-//     // Сохраняем результаты
-//     noisyImage25.save("noisy_25.png");
-//     noisyImage50.save("noisy_50.png");
-//     noisyImage75.save("noisy_75.png");
-
-//     // Демонстрация с подробным выводом
-//     demonstrateAdditiveNoise();
-
-//     return 0;
-// }
+    }
+    // if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Point)){}
+    // if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Line)){}
+    
+    return image_n;
+}

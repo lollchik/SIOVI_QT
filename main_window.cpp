@@ -204,309 +204,48 @@ void MainWindow::onImpulseLevelChanged(int index)
     noiseLevel = 0.25 + index * 0.25; // 0.25, 0.50, 0.75
 }
 
-// Вспомогательная функция для вычисления энергии изображения
-double MainWindow::calculateImageEnergy(const QImage &image)
-{
-    double energy = 0.0;
-    for (int y = 0; y < image.height(); y++) {
-        for (int x = 0; x < image.width(); x++) {
-            int value = qGray(image.pixel(x, y));
-            energy += value * value;
-        }
-    }
-    return energy;
-}
-
-// Вспомогательная функция для вычисления математического ожидания
-double MainWindow::calculateMeanValue(const QImage &image)
-{
-    double sum = 0.0;
-    int totalPixels = image.width() * image.height();
-    for (int y = 0; y < image.height(); y++) {
-        for (int x = 0; x < image.width(); x++) {
-            sum += qGray(image.pixel(x, y));
-        }
-    }
-    return sum / totalPixels;
-}
-
-QImage MainWindow::generateAdditiveNoise(QImage image)
-{
-   return NoiseGenerator().generateAdditiveNoise(image, noiseLevel, 7897);
-}
-
-void MainWindow::generateImpulseNoise(QImage &image, double eta, int type, int intensity)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double targetNoiseEnergy = eta * B_ish;
-    double MO_sh = calculateMeanValue(image);
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    switch (type) {
-    case 0: // Соль
-        if (intensity == 0) { // Точечный
-            generateSaltNoisePoint(image, eta);
-        } else { // Строковый
-            generateSaltNoiseLine(image, eta);
-        }
-        break;
-        
-    case 1: // Перец
-        if (intensity == 0) { // Точечный
-            generatePepperNoisePoint(image, eta);
-        } else { // Строковый
-            generatePepperNoiseLine(image, eta);
-        }
-        break;
-        
-    case 2: // Соль и перец
-        generateSaltAndPepperNoise(image, eta, intensity == 1);
-        break;
-    }
-}
-
-void MainWindow::generateSaltNoisePoint(QImage &image, double eta)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double targetNoiseEnergy = eta * B_ish;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    // Собираем все пиксели и перемешиваем
-    std::vector<std::pair<int, int>> allPixels;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            allPixels.push_back({x, y});
-        }
-    }
-    std::shuffle(allPixels.begin(), allPixels.end(), *rg);
-    
-    // Добавляем шумовые пиксели
-    for (const auto& pixel : allPixels) {
-        int x = pixel.first;
-        int y = pixel.second;
-        
-        int originalValue = qGray(image.pixel(x, y));
-        double pixelEnergy = pow(255 - originalValue, 2);
-        
-        if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-            image.setPixel(x, y, qRgb(255, 255, 255));
-            currentNoiseEnergy += pixelEnergy;
-        }
-        
-        if (currentNoiseEnergy >= targetNoiseEnergy) {
-            break;
-        }
-    }
-}
-
-void MainWindow::generateSaltNoiseLine(QImage &image, double eta)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double targetNoiseEnergy = eta * B_ish;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    while (currentNoiseEnergy < targetNoiseEnergy) {
-        int startX = rg->bounded(width);
-        int startY = rg->bounded(height);
-        int length = rg->bounded(2, 6); // Длина 2-5 пикселей
-        
-        for (int i = 0; i < length && startX + i < width; i++) {
-            int x = startX + i;
-            int y = startY;
-            
-            if (y < height) {
-                int originalValue = qGray(image.pixel(x, y));
-                double pixelEnergy = pow(255 - originalValue, 2);
-                
-                if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-                    image.setPixel(x, y, qRgb(255, 255, 255));
-                    currentNoiseEnergy += pixelEnergy;
-                }
-            }
-        }
-    }
-}
-
-void MainWindow::generatePepperNoisePoint(QImage &image, double eta)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double targetNoiseEnergy = eta * B_ish;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    std::vector<std::pair<int, int>> allPixels;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            allPixels.push_back({x, y});
-        }
-    }
-    std::shuffle(allPixels.begin(), allPixels.end(), *rg);
-    
-    for (const auto& pixel : allPixels) {
-        int x = pixel.first;
-        int y = pixel.second;
-        
-        int originalValue = qGray(image.pixel(x, y));
-        double pixelEnergy = pow(originalValue, 2);
-        
-        if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-            image.setPixel(x, y, qRgb(0, 0, 0));
-            currentNoiseEnergy += pixelEnergy;
-        }
-        
-        if (currentNoiseEnergy >= targetNoiseEnergy) {
-            break;
-        }
-    }
-}
-
-void MainWindow::generatePepperNoiseLine(QImage &image, double eta)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double targetNoiseEnergy = eta * B_ish;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    while (currentNoiseEnergy < targetNoiseEnergy) {
-        int startX = rg->bounded(width);
-        int startY = rg->bounded(height);
-        int length = rg->bounded(2, 6);
-        
-        for (int i = 0; i < length && startX + i < width; i++) {
-            int x = startX + i;
-            int y = startY;
-            
-            if (y < height) {
-                int originalValue = qGray(image.pixel(x, y));
-                double pixelEnergy = pow(originalValue, 2);
-                
-                if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-                    image.setPixel(x, y, qRgb(0, 0, 0));
-                    currentNoiseEnergy += pixelEnergy;
-                }
-            }
-        }
-    }
-}
-
-void MainWindow::generateSaltAndPepperNoise(QImage &image, double eta, bool isLineNoise)
-{
-    int width = image.width();
-    int height = image.height();
-    
-    double B_ish = calculateImageEnergy(image);
-    double MO_sh = calculateMeanValue(image);
-    double targetNoiseEnergy = eta * B_ish;
-    
-    QRandomGenerator *rg = QRandomGenerator::global();
-    double currentNoiseEnergy = 0.0;
-    
-    if (!isLineNoise) {
-        // Точечный шум
-        std::vector<std::pair<int, int>> allPixels;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                allPixels.push_back({x, y});
-            }
-        }
-        std::shuffle(allPixels.begin(), allPixels.end(), *rg);
-        
-        for (const auto& pixel : allPixels) {
-            int x = pixel.first;
-            int y = pixel.second;
-            
-            int originalValue = qGray(image.pixel(x, y));
-            double pixelEnergy = pow(MO_sh, 2);
-            
-            if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-                if (originalValue < MO_sh) {
-                    image.setPixel(x, y, qRgb(255, 255, 255)); // Соль
-                } else {
-                    image.setPixel(x, y, qRgb(0, 0, 0)); // Перец
-                }
-                currentNoiseEnergy += pixelEnergy;
-            }
-            
-            if (currentNoiseEnergy >= targetNoiseEnergy) {
-                break;
-            }
-        }
-    } else {
-        // Строковый шум
-        while (currentNoiseEnergy < targetNoiseEnergy) {
-            int startX = rg->bounded(width);
-            int startY = rg->bounded(height);
-            int length = rg->bounded(2, 6);
-            
-            int firstPixelValue = qGray(image.pixel(startX, startY));
-            int lineBrightness = (firstPixelValue < MO_sh) ? 255 : 0;
-            
-            for (int i = 0; i < length && startX + i < width; i++) {
-                int x = startX + i;
-                int y = startY;
-                
-                if (y < height) {
-                    double pixelEnergy = pow(MO_sh, 2);
-                    
-                    if (currentNoiseEnergy + pixelEnergy <= targetNoiseEnergy) {
-                        image.setPixel(x, y, qRgb(lineBrightness, lineBrightness, lineBrightness));
-                        currentNoiseEnergy += pixelEnergy;
-                    }
-                }
-            }
-        }
-    }
-}
-
 void MainWindow::updateImageDisplays()
 {
-    // Генерация исходного изображения
-    // QImage image1(300, 200, QImage::Format_RGB32);
-    // __pg_obj.generateGeometricPattern(image1);
-
-    // QImage image2 = image1.copy();
-    // QImage image3(300, 200, QImage::Format_RGB32);
+    if (image.isNull()) {
+        return;
+    }
+    
+    // Отображение исходного изображения
+    imageLabel1->setPixmap(QPixmap::fromImage(image.convertToFormat(QImage::Format_Grayscale8)));//.scaled(300, 200, Qt::KeepAspectRatio));
+    
+    // Создание зашумленного изображения
+    QImage noisyImage = image.copy();
     
     // Применение выбранного шума
-    // if (noiseType == 0) {
+    if (noiseType == 0) {
         // Аддитивный шум
-        // generateAdditiveNoise(image2, noiseLevel);
-    // } else {
+        noisyImage = NoiseGenerator().generateAdditiveNoise(image, noiseLevel, 7897);
+    } else {
         // Импульсный шум
-        // generateImpulseNoise(image2, noiseLevel, impulseNoiseType, impulseIntensity);
-    // }
+        NoiseGenerator::ImpulseNoiseType type;
+        switch (impulseNoiseType) {
+        case 0: type = NoiseGenerator::ImpulseNoiseType::Salt; break;
+        case 1: type = NoiseGenerator::ImpulseNoiseType::Pepper; break;
+        case 2: type = NoiseGenerator::ImpulseNoiseType::SaltAndPepper; break;
+        default: type = NoiseGenerator::ImpulseNoiseType::Salt; break;
+        }
+        
+        NoiseGenerator::ImpulseNoiseIntensity intensity;
+        switch (impulseIntensity) {
+        case 0: intensity = NoiseGenerator::ImpulseNoiseIntensity::Point; break;
+        case 1: intensity = NoiseGenerator::ImpulseNoiseIntensity::Line; break;
+        default: intensity = NoiseGenerator::ImpulseNoiseIntensity::Point; break;
+        }
+        
+        noisyImage = NoiseGenerator().generateImpulseNoise(image, noiseLevel, type, intensity, 7897);
+    }
     
-    // Отображение изображений
-    imageLabel1->setPixmap(QPixmap::fromImage(image).scaled(300, 200, Qt::KeepAspectRatio));
-    QImage image_noise = generateAdditiveNoise(image);
-    imageLabel2->setPixmap(QPixmap::fromImage(image_noise).scaled(300, 200, Qt::KeepAspectRatio));
+    // Отображение зашумленного изображения
+    imageLabel2->setPixmap(QPixmap::fromImage(noisyImage));//.scaled(300, 200, Qt::KeepAspectRatio));
     
     // Применение фильтра и отображение результата
-    // image3 = __filter.apply(image2);
-    imageLabel3->setPixmap(QPixmap::fromImage(image).scaled(300, 200, Qt::KeepAspectRatio));
+    // TODO: Добавить фильтрацию
+    imageLabel3->setPixmap(QPixmap::fromImage(noisyImage));//.scaled(300, 200, Qt::KeepAspectRatio));
 }
 
 // Вспомогательные функции для доступа к группам

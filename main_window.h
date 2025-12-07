@@ -50,8 +50,15 @@ public:
     ~MainWindow() = default;
 
 private slots:
-    // void onInertialNoiseClicked();
+// void onInertialNoiseClicked();
+    void onDownloadNoiseClicked();
+    void onAdditiveNoiseClicked();
     void onImpulseNoiseClicked();
+    void onApplyNoiseClicked();
+    void onAdditiveLevelChanged(int index);
+    void onImpulseTypeChanged(int index);
+    void onImpulseIntensityChanged(int index);
+    void onImpulseLevelChanged(int index);
     // void onFrequencyChanged(int value);
     // void updateNoise();
 
@@ -61,24 +68,9 @@ private:
     void setupUI();
     void generateInertialNoise(QImage &image, double eta);
 
-    void onDownloadNoiseClicked();
     QImage generateAdditiveNoise(QImage image);
-    void onAdditiveNoiseClicked();
     QGroupBox* additiveGroup() const;
     QGroupBox* impulseGroup() const;
-    void onApplyNoiseClicked();
-    void onAdditiveLevelChanged(int index);
-    void onImpulseTypeChanged(int index);
-    void onImpulseIntensityChanged(int index);
-    void onImpulseLevelChanged(int index);
-    double calculateImageEnergy(const QImage &image);
-    double calculateMeanValue(const QImage &image);
-    void generateImpulseNoise(QImage &image, double eta, int type, int intensity);
-    void generateSaltNoisePoint(QImage &image, double eta);
-    void generateSaltNoiseLine(QImage &image, double eta);
-    void generatePepperNoisePoint(QImage &image, double eta);
-    void generatePepperNoiseLine(QImage &image, double eta);
-    void generateSaltAndPepperNoise(QImage &image, double eta, bool isLineNoise);
     // Переменные состояния
     int noiseType; // 0 - аддитивный, 1 - импульсный
     double noiseLevel; // 0.25, 0.50, 0.75
@@ -109,11 +101,6 @@ private:
     QHBoxLayout *imagesLayout;
     QHBoxLayout *buttonsLayuout;
     QHBoxLayout *parametersLayout;
-
-
-    QTimer *updateTimer;
-    int frequency; // Hz
-    QRandomGenerator random;
 };
 
 #endif // MAINWINDOW_H
