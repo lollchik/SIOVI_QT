@@ -175,6 +175,28 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
         // используем заданное значение для возможости воспроизведния
         randGenerator.seed(seed);
     }
+    //СОЗДАНИЕ ШУМОВОГО ПОЛЯ
+    // Шумовое поле f_Ш(x,y)
+    QVector<QVector<double>> noiseField(i_width, QVector<double>(i_height, 0.0));    
+    for (int x = 0; x < i_width; ++x)
+    {
+        for (int y = 0; y < i_height; ++y)
+        {
+            noiseField[x][y] = randGenerator.bounded(RANGE); //rand 0 - 255
+        }
+    }
+    // ВЫЧИСЛЕНИЕ МАТЕМАТИЧЕСКОГО ОЖИДАНИЯ ШУМОВОГО ПОЛЯ
+    // MO_ш = (1/N²) * ΣΣ f_Ш(x,y)
+    double mo_noise = 0.0; // MO_ш
+    for (int x = 0; x < i_width; ++x)
+    {
+        for (int y = 0; y < i_height; ++y)
+        {
+            mo_noise += noiseField[x][y];
+        }
+    }
+    mo_noise = mo_noise / N2;
+    qDebug() << "Математическое ожидание шумового поля (MO_ш):" << mo_noise;
 
     if((type == ImpulseNoiseType::Salt) &&  (intensity == ImpulseNoiseIntensity::Point)){
         // Вычисляем B_text (сумма квадратов значений яркости исходного изображения)
@@ -359,8 +381,107 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
         qDebug() << "Общее η:" << currentEta;
 
     }
-    // if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Point)){}
-    // if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Line)){}
+    if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Point)){
+        // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        // Целевое значение η (можно задать как параметр)
+        double targetEta = noiseLevel; // или другое значение
+        
+        // Добавляем шум до достижения целевого η
+        double currentEta = 0.0;
+        std::set<std::pair<int, int>> x_y_set{};
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            
+            // Получаем текущее значение пикселя
+            if(x_y_set.find(std::make_pair(x,y)) == x_y_set.end()){
+                x_y_set.insert(std::make_pair(x,y));
+                int originalValue = qGray(image.pixel(x, y));
+                if(originalValue < mo_noise){
+                    // Рассчитываем вклад этого пикселя в η
+                    double contribution = pow(255 - originalValue, 2);
+                    double newEta = currentEta + ( contribution / B_ish );
+                    
+                    image_n.setPixel(x, y, qRgb(255, 255, 255)); // set "salt" pixel
+                    currentEta = newEta;
+                }
+                else{
+                    // Рассчитываем вклад этого пикселя в η
+                    double contribution = pow(originalValue, 2);
+                    double newEta = currentEta + ( contribution / B_ish );
+                    
+                    image_n.setPixel(x, y, qRgb(0, 0, 0));// set "pepper" pixel
+                    currentEta = newEta;
+                }
+            }   
+            // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
+            //          << ", η:" << currentEta
+            //          << ", need η:" << noiseLevel;
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Общее η:" << currentEta;
+    }
+    if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Line)){
+        // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
+        double B_ish = 0.0;
+        for (int y = 0; y < i_height; y++) {
+            for (int x = 0; x < i_width; x++) {
+                int pixel_value = qGray(image.pixel(x, y));
+                B_ish += pixel_value * pixel_value;
+            }
+        }
+        
+        // Целевое значение η (можно задать как параметр)
+        double targetEta = noiseLevel; // или другое значение
+        
+        // Добавляем шум до достижения целевого η
+        double currentEta = 0.0;
+        std::set<std::pair<int, int>> x_y_set{};
+        while (currentEta <= targetEta) {
+            // Генерируем случайные координаты
+            int x = QRandomGenerator::global()->bounded(i_width);
+            int y = QRandomGenerator::global()->bounded(i_height);
+            int line_size = QRandomGenerator::global()->bounded(RANGE_STR_LOW, RANGE_STR_HIGHT);
+            // Получаем текущее значение пикселя
+            if(x_y_set.find(std::make_pair(x,y)) == x_y_set.end()){
+                x_y_set.insert(std::make_pair(x,y));
+                int originalValue = qGray(image.pixel(x, y));
+                for(int i = 0 ; i<line_size ; i++){
+                    if(originalValue < mo_noise){
+                        // Рассчитываем вклад этого пикселя в η
+                        double contribution = pow(255 - originalValue, 2);
+                        double newEta = currentEta + ( contribution / B_ish );
+                        
+                        image_n.setPixel(x+i, y, qRgb(255, 255, 255)); // set "salt" pixel
+                        currentEta = newEta;
+                    }
+                    else{
+                        // Рассчитываем вклад этого пикселя в η
+                        double contribution = pow(originalValue, 2);
+                        double newEta = currentEta + ( contribution / B_ish );
+                        
+                        image_n.setPixel(x+i, y, qRgb(0, 0, 0));// set "pepper" pixel
+                        currentEta = newEta;
+                    }
+                }
+                // qDebug() << "Добавлен шум в линию с начальной координатой (" << x << "," << y << ")"
+                // << " и длинной "<<line_size; 
+            }
+        }
+        
+        qDebug() << "Итоговые параметры шума:";
+        qDebug() << "Общее η:" << currentEta;
+    }
     
     return image_n;
 }
