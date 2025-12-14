@@ -25,4 +25,6 @@ public:
 
     QImage apply_uniform_area_smoothing(QImage &inputImage);
     QImage apply_mask_smoothing(QImage &inputImage);
+    QImage apply_median_filtr(QImage &inputImage);
+    
 };

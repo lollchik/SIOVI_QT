@@ -1,5 +1,69 @@
 #include "filter.h"
 
+QImage Filters::apply_median_filtr(QImage &inputImage)
+{
+    int maskSize = 3;
+    // Проверка формата изображения
+    if (inputImage.format() != QImage::Format_Grayscale8) {
+        qWarning() << "Изображение должно быть в формате Format_Grayscale8";
+        return QImage();
+    }
+    
+    // Проверка размера маски
+    if (maskSize % 2 == 0) {
+        qWarning() << "Размер маски должен быть нечетным";
+        return QImage();
+    }
+    
+    if (maskSize < 3) {
+        qWarning() << "Размер маски должен быть не менее 3";
+        return QImage();
+    }
+    
+    // Получаем размеры изображения
+    int width = inputImage.width();
+    int height = inputImage.height();
+    int radius = maskSize / 2;
+    
+    // Создаем выходное изображение
+    QImage outputImage(width, height, QImage::Format_Grayscale8);
+    
+    // Вектор для хранения значений из окна
+    QVector<uchar> windowValues;
+    windowValues.reserve(maskSize * maskSize);
+    
+    // Обрабатываем все пиксели, кроме краевых
+    for (int y = radius; y < height - radius; ++y) {
+        uchar *outputScanLine = outputImage.scanLine(y);
+        
+        for (int x = radius; x < width - radius; ++x) {
+            // Очищаем вектор для нового окна
+            windowValues.clear();
+            
+            // Собираем все значения из окна
+            for (int dy = -radius; dy <= radius; ++dy) {
+                const uchar *inputScanLine = inputImage.scanLine(y + dy);
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    windowValues.append(inputScanLine[x + dx]);
+                }
+            }
+            
+            // Находим медианное значение
+            std::nth_element(windowValues.begin(), 
+                           windowValues.begin() + windowValues.size() / 2,
+                           windowValues.end());
+            
+            // Медиана - средний элемент отсортированного массива
+            uchar medianValue = windowValues[windowValues.size() / 2];
+            
+            // Записываем результат
+            outputScanLine[x] = medianValue;
+        }
+    }
+    
+    return outputImage;
+}
+
 QImage Filters::apply_uniform_area_smoothing(QImage &inputImage)
 {
     int windowSize = 5;

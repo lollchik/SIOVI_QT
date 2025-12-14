@@ -256,7 +256,9 @@ void MainWindow::updateImageDisplays()
     // Применение фильтра и отображение результата
     // TODO: Добавить фильтрацию
     // QImage filtred_image = __filter.apply_uniform_area_smoothing(noisyImage); //по однорордным областям
-    QImage filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске
+    // QImage filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске
+    QImage filtred_image = __filter.apply_median_filtr(noisyImage); //медианный фильтр (в данный момент размер маски 3)
+
     imageLabel3->setPixmap(QPixmap::fromImage(filtred_image));//.scaled(300, 200, Qt::KeepAspectRatio));
 }
 
