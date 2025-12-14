@@ -81,7 +81,7 @@ private:
     void updateImageDisplays();
     
     PictureGenerator __pg_obj;
-    MaskFilter __filter;
+    Filters __filter;
 
     QWidget *centralWidget;
     QLabel *imageLabel1;

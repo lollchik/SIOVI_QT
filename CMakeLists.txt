@@ -3,19 +3,17 @@ project(SIOVI CXX)
 
 include(CheckIncludeFileCXX)
 
+# Активируем автоматическую обработку MOC/UI/RCC
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always") #подсветка вывода 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
 find_package(Qt5Widgets CONFIG REQUIRED)
-
-qt5_wrap_cpp(MOC_SOURCES 
-                main_window.h 
-                noise_generator.h
-                picture_generator.h
-                filter.h
-)
 
 set(SOURCES
     main.cpp

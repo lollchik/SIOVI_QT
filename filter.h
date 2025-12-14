@@ -3,8 +3,9 @@
 #include <QVector>
 #include <QColor>
 #include <cmath>
+#include <QDebug>
 
-class MaskFilter {
+class Filters {
 private:
     QVector<QVector<double>> kernel= {
         {0, -1, 0},
@@ -16,11 +17,12 @@ private:
     double offset= 0.0;
 
 public:
-    MaskFilter(){};
-    // MaskFilter(QVector<QVector<double>> &mask , double div = 1.0, double off = 0.0) 
+    Filters(){};
+    // Filters(QVector<QVector<double>> &mask , double div = 1.0, double off = 0.0) 
     //     : kernel(mask), divisor(div), offset(off) {
     //     kernelSize = kernel.size();
     // }
 
-    QImage apply(QImage &inputImage);
+    QImage apply_uniform_area_smoothing(QImage &inputImage);
+    QImage apply_mask_smoothing(QImage &inputImage);
 };

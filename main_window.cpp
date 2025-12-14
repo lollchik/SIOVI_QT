@@ -16,10 +16,6 @@ void MainWindow::setupUI()
     imageLabel2 = new QLabel(this);
     imageLabel3 = new QLabel(this);
     
-    // imageLabel1->setFixedSize(300, 200);
-    // imageLabel2->setFixedSize(300, 200);
-    // imageLabel3->setFixedSize(300, 200);
-    
     imageLabel1->setAlignment(Qt::AlignCenter);
     imageLabel2->setAlignment(Qt::AlignCenter);
     imageLabel3->setAlignment(Qt::AlignCenter);
@@ -47,7 +43,7 @@ void MainWindow::setupUI()
     
     QLabel *additiveLevelLabel = new QLabel("Уровень шума (η):", this);
     additiveLevelCombo = new QComboBox(this);
-    additiveLevelCombo->addItems({"0.25", "0.50", "0.75"});
+    additiveLevelCombo->addItems({"0.15", "0.25", "0.50", "1.0"});
     additiveLevelCombo->setCurrentIndex(0);
     
     additiveLayout->addWidget(additiveLevelLabel);
@@ -67,7 +63,7 @@ void MainWindow::setupUI()
     
     QLabel *impulseLevelLabel = new QLabel("Уровень шума (η):", this);
     impulseLevelCombo = new QComboBox(this);
-    impulseLevelCombo->addItems({"0.25", "0.50", "0.75"});
+    impulseLevelCombo->addItems({"0.15", "0.25", "0.50", "1.0"});
     impulseLevelCombo->setCurrentIndex(0);
     
     impulseLayout->addWidget(impulseTypeLabel);
@@ -186,7 +182,14 @@ void MainWindow::onApplyNoiseClicked()
 
 void MainWindow::onAdditiveLevelChanged(int index)
 {
-    noiseLevel = 0.25 + index * 0.25; // 0.25, 0.50, 0.75
+    if(index == 0)
+        noiseLevel = 0.15; // 0.15", "0.25", "0.5", "1.0
+    else if(index == 1)
+        noiseLevel = 0.25;
+    else if(index == 2)
+        noiseLevel = 0.5;
+    else if(index == 3)
+        noiseLevel = 1;
 }
 
 void MainWindow::onImpulseTypeChanged(int index)
@@ -201,7 +204,14 @@ void MainWindow::onImpulseIntensityChanged(int index)
 
 void MainWindow::onImpulseLevelChanged(int index)
 {
-    noiseLevel = 0.25 + index * 0.25; // 0.25, 0.50, 0.75
+    if(index == 0)
+        noiseLevel = 0.15; // 0.15", "0.25", "0.5", "1.0
+    else if(index == 1)
+        noiseLevel = 0.25;
+    else if(index == 2)
+        noiseLevel = 0.5;
+    else if(index == 3)
+        noiseLevel = 1;
 }
 
 void MainWindow::updateImageDisplays()
@@ -245,7 +255,9 @@ void MainWindow::updateImageDisplays()
     
     // Применение фильтра и отображение результата
     // TODO: Добавить фильтрацию
-    imageLabel3->setPixmap(QPixmap::fromImage(noisyImage));//.scaled(300, 200, Qt::KeepAspectRatio));
+    // QImage filtred_image = __filter.apply_uniform_area_smoothing(noisyImage); //по однорордным областям
+    QImage filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске
+    imageLabel3->setPixmap(QPixmap::fromImage(filtred_image));//.scaled(300, 200, Qt::KeepAspectRatio));
 }
 
 // Вспомогательные функции для доступа к группам
