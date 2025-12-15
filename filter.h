@@ -5,6 +5,12 @@
 #include <cmath>
 #include <QDebug>
 
+enum StructuringElement
+{
+    SQUARE, // Квадратная матрица
+    CROSS   // Крест
+};
+
 class Filters {
 private:
     QVector<QVector<double>> kernel= {
@@ -23,8 +29,13 @@ public:
     //     kernelSize = kernel.size();
     // }
 
-    QImage apply_uniform_area_smoothing(QImage &inputImage);
     QImage apply_mask_smoothing(QImage &inputImage);
+    QImage apply_uniform_area_smoothing(QImage &inputImage);
     QImage apply_median_filtr(QImage &inputImage);
+    QImage dilation(const QImage &inputImage, int maskSize = 3,
+                         StructuringElement elementType = SQUARE);
+    QImage erosion(const QImage &inputImage, int maskSize = 3,
+                      StructuringElement elementType = SQUARE);
+    QImage apply_sharpening_Filter(const QImage& inputImage, double A = 1.5, bool useLaplacian = false);
     
 };

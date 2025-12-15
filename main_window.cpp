@@ -1,8 +1,8 @@
 #include "main_window.h"
 
-#define low = 0.25
-#define medium = 0.5
-#define hight = 0.75
+// #define low = 0.25
+// #define medium = 0.5
+// #define hight = 0.75
 
 
 
@@ -35,7 +35,22 @@ void MainWindow::setupUI()
     
     downloadButton->setFixedSize(150, 40);
     additiveNoiseButton->setFixedSize(150, 40);
+    additiveNoiseButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
     impulseNoiseButton->setFixedSize(150, 40);
+
+    // Группа для выбора типа фильтра
+    QGroupBox *filtrGroup = new QGroupBox("Тип фильтра", this);
+    QVBoxLayout *filtrLayout = new QVBoxLayout(filtrGroup);
+    filtrCombo = new QComboBox(this);
+    filtrCombo->addItems({  "сглаживание маской"
+                                    , "сгаживание по ожнородным областям"
+                                    , "медианный фильтр"
+                                    , "выделение контуров"
+                                    , "Морфология: дилитация"
+                                    , "Морфология: эрозия"});
+    filtrCombo->setCurrentIndex(0);
+    
+    filtrLayout->addWidget(filtrCombo);
     
     // Группа для параметров аддитивного шума
     QGroupBox *additiveGroup = new QGroupBox("Параметры аддитивного шума", this);
@@ -57,9 +72,9 @@ void MainWindow::setupUI()
     impulseTypeCombo = new QComboBox(this);
     impulseTypeCombo->addItems({"Соль", "Перец", "Соль и перец"});
     
-    QLabel *impulseIntensityLabel = new QLabel("Интенсивность:", this);
-    impulseIntensityCombo = new QComboBox(this);
-    impulseIntensityCombo->addItems({"Точечный", "Строковый"});
+    QLabel *impulse_formLabel = new QLabel("Интенсивность:", this);
+    impulse_formCombo = new QComboBox(this);
+    impulse_formCombo->addItems({"Точечный", "Строковый"});
     
     QLabel *impulseLevelLabel = new QLabel("Уровень шума (η):", this);
     impulseLevelCombo = new QComboBox(this);
@@ -68,15 +83,15 @@ void MainWindow::setupUI()
     
     impulseLayout->addWidget(impulseTypeLabel);
     impulseLayout->addWidget(impulseTypeCombo);
-    impulseLayout->addWidget(impulseIntensityLabel);
-    impulseLayout->addWidget(impulseIntensityCombo);
+    impulseLayout->addWidget(impulse_formLabel);
+    impulseLayout->addWidget(impulse_formCombo);
     impulseLayout->addWidget(impulseLevelLabel);
     impulseLayout->addWidget(impulseLevelCombo);
     
     // Кнопка применения шума
-    applyNoiseButton = new QPushButton("Применить шум", this);
-    applyNoiseButton->setFixedSize(200, 40);
-    applyNoiseButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; font-weight: bold; }");
+    applyButton = new QPushButton("Применить шум и фильтрацию", this);
+    applyButton->setFixedSize(400, 40);
+    applyButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; font-weight: bold; }");
     
     // Компоновка
     imagesLayout = new QHBoxLayout();
@@ -88,10 +103,11 @@ void MainWindow::setupUI()
     buttonsLayuout->addWidget(downloadButton);
     buttonsLayuout->addWidget(additiveNoiseButton);
     buttonsLayuout->addWidget(impulseNoiseButton);
-
+    
     buttonsLayuout->setAlignment(Qt::AlignCenter);
     
     parametersLayout = new QHBoxLayout();
+    parametersLayout->addWidget(filtrGroup);
     parametersLayout->addWidget(additiveGroup);
     parametersLayout->addWidget(impulseGroup);
     
@@ -99,7 +115,7 @@ void MainWindow::setupUI()
     mainLayout->addLayout(imagesLayout);
     mainLayout->addLayout(buttonsLayuout);
     mainLayout->addLayout(parametersLayout);
-    mainLayout->addWidget(applyNoiseButton, 0, Qt::AlignCenter);
+    mainLayout->addWidget(applyButton, 0, Qt::AlignCenter);
     
     // Изначально скрываем параметры импульсного шума
     impulseGroup->setVisible(false);
@@ -108,10 +124,11 @@ void MainWindow::setupUI()
     connect(downloadButton, &QPushButton::clicked, this, &MainWindow::onDownloadNoiseClicked);
     connect(additiveNoiseButton, &QPushButton::clicked, this, &MainWindow::onAdditiveNoiseClicked);
     connect(impulseNoiseButton, &QPushButton::clicked, this, &MainWindow::onImpulseNoiseClicked);
-    connect(applyNoiseButton, &QPushButton::clicked, this, &MainWindow::onApplyNoiseClicked);
+    connect(applyButton, &QPushButton::clicked, this, &MainWindow::onApplyNoiseClicked);
+    connect(filtrCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFiltrTypeChanged);
     connect(additiveLevelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAdditiveLevelChanged);
     connect(impulseTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImpulseTypeChanged);
-    connect(impulseIntensityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImpulseIntensityChanged);
+    connect(impulse_formCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImpulseIntensityChanged);
     connect(impulseLevelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onImpulseLevelChanged);
     
     setWindowTitle("Генератор шумов для обработки изображений");
@@ -153,9 +170,11 @@ void MainWindow::onDownloadNoiseClicked()
         }
     updateImageDisplays();
 }
+
 void MainWindow::onAdditiveNoiseClicked()
 {
-    noiseType = 0;
+    noiseLevel = 0.15; 
+    noiseType = noise_type::additive;
     additiveNoiseButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
     impulseNoiseButton->setStyleSheet("QPushButton { background-color: none; }");
     
@@ -166,7 +185,8 @@ void MainWindow::onAdditiveNoiseClicked()
 
 void MainWindow::onImpulseNoiseClicked()
 {
-    noiseType = 1;
+    noiseLevel = 0.15; 
+    noiseType = noise_type::impulse;
     impulseNoiseButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
     additiveNoiseButton->setStyleSheet("QPushButton { background-color: none; }");
     
@@ -180,16 +200,52 @@ void MainWindow::onApplyNoiseClicked()
     updateImageDisplays();
 }
 
+void MainWindow::onFiltrTypeChanged(int index){
+    filtr_type = index;
+}
+
 void MainWindow::onAdditiveLevelChanged(int index)
 {
-    if(index == 0)
-        noiseLevel = 0.15; // 0.15", "0.25", "0.5", "1.0
-    else if(index == 1)
-        noiseLevel = 0.25;
-    else if(index == 2)
-        noiseLevel = 0.5;
-    else if(index == 3)
-        noiseLevel = 1;
+    // 0.15", "0.25", "0.5", "1.0
+    switch(index){
+        case noise_level::low:
+            noiseLevel = 0.15; 
+            break;        
+        case noise_level::mediume:
+            noiseLevel = 0.25; 
+            break;
+        case noise_level::half:
+            noiseLevel = 0.5; 
+            break;
+        case noise_level::full:
+            noiseLevel = 1; 
+            break;
+        default:
+            noiseLevel = 0.15; 
+            break;
+    }
+}
+
+void MainWindow::onImpulseLevelChanged(int index)
+{
+    // 0.15", "0.25", "0.5", "1.0
+    switch(index){
+        case noise_level::low:
+            noiseLevel = 0.15; 
+            break;        
+        case noise_level::mediume:
+            noiseLevel = 0.25; 
+            break;
+        case noise_level::half:
+            noiseLevel = 0.5; 
+            break;
+        case noise_level::full:
+            noiseLevel = 1; 
+            break;
+        default:
+            noiseLevel = 0.15; 
+            break;
+    }
 }
 
 void MainWindow::onImpulseTypeChanged(int index)
@@ -199,76 +255,89 @@ void MainWindow::onImpulseTypeChanged(int index)
 
 void MainWindow::onImpulseIntensityChanged(int index)
 {
-    impulseIntensity = index;
+    impulse_form = index;
 }
 
-void MainWindow::onImpulseLevelChanged(int index)
-{
-    if(index == 0)
-        noiseLevel = 0.15; // 0.15", "0.25", "0.5", "1.0
-    else if(index == 1)
-        noiseLevel = 0.25;
-    else if(index == 2)
-        noiseLevel = 0.5;
-    else if(index == 3)
-        noiseLevel = 1;
-}
 
 void MainWindow::updateImageDisplays()
 {
+    qDebug() << "START НАЧАЛО РАБОТЫ С ИЗО";
+    qDebug() << "Конфигурационный значения:";
+    qDebug() << "noiseType - " << noiseType;
+    qDebug() << "noiseLevel - " << noiseLevel;
+    qDebug() << "impulseNoiseType - " << impulseNoiseType;
+    qDebug() << "impulse_form - " << impulse_form;
+    qDebug() << "filtr_type - " << filtr_type;
+    qDebug() << "--------------------------------- ";
+
     if (image.isNull()) {
         return;
     }
-    
+    // __pg_obj.generateChessboard(image);
     // Отображение исходного изображения
-    imageLabel1->setPixmap(QPixmap::fromImage(image.convertToFormat(QImage::Format_Grayscale8)));//.scaled(300, 200, Qt::KeepAspectRatio));
+    imageLabel1->setPixmap(QPixmap::fromImage(image.convertToFormat(QImage::Format_Grayscale8)));
     
     // Создание зашумленного изображения
     QImage noisyImage = image.copy();
     
-    // Применение выбранного шума
-    if (noiseType == 0) {
-        // Аддитивный шум
-        noisyImage = NoiseGenerator().generateAdditiveNoise(image, noiseLevel, 7897);
-    } else {
-        // Импульсный шум
-        NoiseGenerator::ImpulseNoiseType type;
-        switch (impulseNoiseType) {
-        case 0: type = NoiseGenerator::ImpulseNoiseType::Salt; break;
-        case 1: type = NoiseGenerator::ImpulseNoiseType::Pepper; break;
-        case 2: type = NoiseGenerator::ImpulseNoiseType::SaltAndPepper; break;
-        default: type = NoiseGenerator::ImpulseNoiseType::Salt; break;
-        }
-        
-        NoiseGenerator::ImpulseNoiseIntensity intensity;
-        switch (impulseIntensity) {
-        case 0: intensity = NoiseGenerator::ImpulseNoiseIntensity::Point; break;
-        case 1: intensity = NoiseGenerator::ImpulseNoiseIntensity::Line; break;
-        default: intensity = NoiseGenerator::ImpulseNoiseIntensity::Point; break;
-        }
-        
-        noisyImage = NoiseGenerator().generateImpulseNoise(image, noiseLevel, type, intensity, 7897);
+    switch(noiseType){
+        case noise_type::additive:
+            noisyImage = NoiseGenerator().generateAdditiveNoise(image, noiseLevel, 7897);
+            break;
+        case noise_type::impulse:
+            noisyImage = NoiseGenerator().generateImpulseNoise(image, noiseLevel,
+                         static_cast<inmpulse_noise_type>(impulseNoiseType),
+                          static_cast<impulse_noise_form>(impulse_form), 7897);
     }
     
     // Отображение зашумленного изображения
-    imageLabel2->setPixmap(QPixmap::fromImage(noisyImage));//.scaled(300, 200, Qt::KeepAspectRatio));
+    imageLabel2->setPixmap(QPixmap::fromImage(noisyImage));
     
     // Применение фильтра и отображение результата
-    // TODO: Добавить фильтрацию
-    // QImage filtred_image = __filter.apply_uniform_area_smoothing(noisyImage); //по однорордным областям
-    // QImage filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске
-    QImage filtred_image = __filter.apply_median_filtr(noisyImage); //медианный фильтр (в данный момент размер маски 3)
-
+    QImage filtred_image;
+    switch (filtr_type)
+    {
+    case filtr_type::mask_smoothing:
+        qDebug() << "ШАГ финальный фитрация use: mask_smoothing";
+        filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске
+        break;
+    case filtr_type::uniform_area_smoothing:
+        qDebug() << "ШАГ финальный фитрация use: uniform_area_smoothing";
+        filtred_image = __filter.apply_uniform_area_smoothing(noisyImage); 
+        break;
+    case filtr_type::median_filtr:
+        qDebug() << "ШАГ финальный фитрация use: median_filtr";
+        filtred_image = __filter.apply_median_filtr(noisyImage); 
+        break;
+    case filtr_type::sharpening_Filter:
+        qDebug() << "ШАГ финальный фитрация use: sharpening_Filter";
+        filtred_image = __filter.apply_sharpening_Filter(noisyImage); 
+        break;
+    case filtr_type::morph_dilation:
+        qDebug() << "ШАГ финальный фитрация use: morph_dilation";
+        filtred_image = __filter.dilation(noisyImage);
+        break;
+    case filtr_type::morph_erosion:
+        qDebug() << "ШАГ финальный фитрация use: morph_erosion";
+        filtred_image = __filter.erosion(noisyImage);
+        break;
+    default:
+        qDebug() << "ШАГ финальный фитрация use: mask_smoothing";
+        filtred_image = __filter.apply_mask_smoothing(noisyImage); //по маске    
+        break;
+    }
     imageLabel3->setPixmap(QPixmap::fromImage(filtred_image));//.scaled(300, 200, Qt::KeepAspectRatio));
+    qDebug() << "--------------------------------- ";
+    qDebug() << "END КОНЕЦ РАБОТЫ С ИЗО";
 }
 
 // Вспомогательные функции для доступа к группам
 QGroupBox* MainWindow::additiveGroup() const
 {
-    return qobject_cast<QGroupBox*>(parametersLayout->itemAt(0)->widget());
+    return qobject_cast<QGroupBox*>(parametersLayout->itemAt(1)->widget());
 }
 
 QGroupBox* MainWindow::impulseGroup() const
 {
-    return qobject_cast<QGroupBox*>(parametersLayout->itemAt(1)->widget());
+    return qobject_cast<QGroupBox*>(parametersLayout->itemAt(2)->widget());
 }

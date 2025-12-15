@@ -1,66 +1,303 @@
 #include "filter.h"
 
+QImage Filters::erosion(const QImage &inputImage, int maskSize,
+                      StructuringElement elementType)
+{
+    // Проверка формата
+    if (inputImage.format() != QImage::Format_Grayscale8)
+    {
+        qWarning() << "Изображение должно быть в формате Format_Grayscale8";
+        return QImage();
+    }
+
+    int width = inputImage.width();
+    int height = inputImage.height();
+    int radius = maskSize / 2;
+
+    // Создаем структурный элемент
+    QVector<QVector<bool>> mask = {        
+        {true, true, true},
+        {true, true, true},
+        {true, true, true}};
+
+    // Создаем выходное изображение
+    QImage outputImage(width, height, QImage::Format_Grayscale8);
+    outputImage.fill(255); // Изначально все фон (белый)
+
+    // Обрабатываем внутренние пиксели (исключая границы)
+    for (int y = radius; y < height - radius; ++y)
+    {
+        const uchar *inputLine = inputImage.scanLine(y);
+        uchar *outputLine = outputImage.scanLine(y);
+
+        for (int x = radius; x < width - radius; ++x)
+        {
+            // Проверяем текущий пиксель
+            if (inputLine[x]<=127)
+            {
+                // Если текущий пиксель - фон, результат тоже фон
+                outputLine[x] = 0;
+                continue;
+            }
+
+            // Проверяем окрестность
+            bool allForeground = true;
+
+            for (int dy = -radius; dy <= radius; ++dy)
+            {
+                const uchar *neighborLine = inputImage.scanLine(y + dy);
+
+                for (int dx = -radius; dx <= radius; ++dx)
+                {
+                    // Если позиция активна в маске
+                    if (mask[dy + radius][dx + radius])
+                    {
+                        uchar neighborValue = neighborLine[x + dx];
+
+                        // Если хотя бы один сосед - фон
+                        if (neighborValue<=127)
+                        {
+                            allForeground = false;
+                            break;
+                        }
+                    }
+                }
+                if (!allForeground)
+                    break;
+            }
+
+            // Результат эрозии
+            outputLine[x] = allForeground ? 255 : 0;
+        }
+    }
+
+    return outputImage;
+}
+
+QImage Filters::dilation(const QImage &inputImage, int maskSize, StructuringElement elementType)
+{
+    // Проверка формата
+    if (inputImage.format() != QImage::Format_Grayscale8)
+    {
+        qWarning() << "Изображение должно быть в формате Format_Grayscale8";
+        return QImage();
+    }
+
+    int width = inputImage.width();
+    int height = inputImage.height();
+    int radius = maskSize / 2;
+
+    // Создаем структурный элемент
+    QVector<QVector<bool>> mask = QVector<QVector<bool>>{
+        {true, true, true},
+        {true, true, true},
+        {true, true, true}};
+
+    // Создаем выходное изображение
+    QImage outputImage(width, height, QImage::Format_Grayscale8);
+    outputImage.fill(0); // Изначально все фон (черный)
+
+    // Обрабатываем внутренние пиксели
+    for (int y = radius; y < height - radius; ++y)
+    {
+        const uchar *inputLine = inputImage.scanLine(y);
+        uchar *outputLine = outputImage.scanLine(y);
+
+        for (int x = radius; x < width - radius; ++x)
+        {
+            // Проверяем окрестность текущего пикселя
+            bool hasForeground = false;
+
+            for (int dy = -radius; dy <= radius; ++dy)
+            {
+                const uchar *neighborLine = inputImage.scanLine(y + dy);
+
+                for (int dx = -radius; dx <= radius; ++dx)
+                {
+                    // Если позиция активна в маске
+                    if (mask[dy + radius][dx + radius])
+                    {
+                        uchar neighborValue = neighborLine[x + dx];
+
+                        // Если хотя бы один сосед - объект
+                        if (neighborValue > 127)
+                        {
+                            hasForeground = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasForeground)
+                    break;
+            }
+
+            // Результат дилатации
+            outputLine[x] = hasForeground ? 255 : 0;
+        }
+    }
+
+    return outputImage;
+}
+
+QImage Filters::apply_sharpening_Filter(const QImage& inputImage, double A, bool useLaplacian)
+{
+        if (inputImage.isNull()) {
+        return QImage();
+    }
+    
+    // Конвертируем входное изображение в Grayscale8 если нужно
+    QImage grayImage = inputImage;
+    if (inputImage.format() != QImage::Format_Grayscale8) {
+        grayImage = inputImage.convertToFormat(QImage::Format_Grayscale8);
+    }
+    
+    // Создаем выходное изображение в том же формате
+    QImage outputImage(grayImage.size(), QImage::Format_Grayscale8);
+    
+    int width = grayImage.width();
+    int height = grayImage.height();
+    
+    // Получаем доступ к данным изображения
+    const uchar* srcData = grayImage.constBits();
+    uchar* dstData = outputImage.bits();
+    
+    // Лапласиан маска
+    int laplacianMask[3][3] = {
+        {-1, -1, -1},
+        {-1,  9, -1},
+        {-1, -1, -1}
+    };
+    
+    // Получаем размер строки (с учетом выравнивания)
+    int srcBytesPerLine = grayImage.bytesPerLine();
+    int dstBytesPerLine = outputImage.bytesPerLine();
+    
+    // Обрабатываем центральную часть изображения (исключая границы)
+    for (int y = 1; y < height - 1; ++y) {
+        for (int x = 1; x < width - 1; ++x) {
+            int srcIndex = y * srcBytesPerLine + x;
+            int dstIndex = y * dstBytesPerLine + x;
+            
+            int originalGray = static_cast<int>(srcData[srcIndex]);
+            
+            if (useLaplacian) {
+                // Применение дискретного лапласиана
+                int graySum = 0;
+                
+                for (int j = -1; j <= 1; ++j) {
+                    for (int i = -1; i <= 1; ++i) {
+                        int pixelX = x + i;
+                        int pixelY = y + j;
+                        int pixelIndex = pixelY * srcBytesPerLine + pixelX;
+                        
+                        int pixelValue = static_cast<int>(srcData[pixelIndex]);
+                        int maskValue = laplacianMask[j + 1][i + 1];
+                        
+                        graySum += pixelValue * maskValue;
+                    }
+                }
+                
+                // Ограничиваем значения в диапазоне 0-255
+                int newGray = std::min(std::max(graySum, 0), 255);
+                dstData[dstIndex] = static_cast<uchar>(newGray);
+            } else {
+                // Нерезкое маскирование (unsharp masking)
+                // Вычисляем среднее значение в окрестности 3x3
+                int graySum = 0;
+                
+                for (int j = -1; j <= 1; ++j) {
+                    for (int i = -1; i <= 1; ++i) {
+                        int pixelX = x + i;
+                        int pixelY = y + j;
+                        int pixelIndex = pixelY * srcBytesPerLine + pixelX;
+                        
+                        graySum += static_cast<int>(srcData[pixelIndex]);
+                    }
+                }
+                
+                // Среднее значение (расфокусированное изображение)
+                int avgGray = graySum / 9;
+                
+                // Применяем формулу нерезкого маскирования: f_s = A*f - f_avg
+                int newGray = static_cast<int>(A * originalGray - avgGray);
+                
+                // Ограничиваем значения в диапазоне 0-255
+                newGray = std::min(std::max(newGray, 0), 255);
+                dstData[dstIndex] = static_cast<uchar>(newGray);
+            }
+        }
+    }
+    return outputImage;
+}
+
 QImage Filters::apply_median_filtr(QImage &inputImage)
 {
     int maskSize = 3;
     // Проверка формата изображения
-    if (inputImage.format() != QImage::Format_Grayscale8) {
+    if (inputImage.format() != QImage::Format_Grayscale8)
+    {
         qWarning() << "Изображение должно быть в формате Format_Grayscale8";
         return QImage();
     }
-    
+
     // Проверка размера маски
-    if (maskSize % 2 == 0) {
+    if (maskSize % 2 == 0)
+    {
         qWarning() << "Размер маски должен быть нечетным";
         return QImage();
     }
-    
-    if (maskSize < 3) {
+
+    if (maskSize < 3)
+    {
         qWarning() << "Размер маски должен быть не менее 3";
         return QImage();
     }
-    
+
     // Получаем размеры изображения
     int width = inputImage.width();
     int height = inputImage.height();
     int radius = maskSize / 2;
-    
+
     // Создаем выходное изображение
     QImage outputImage(width, height, QImage::Format_Grayscale8);
-    
+
     // Вектор для хранения значений из окна
     QVector<uchar> windowValues;
     windowValues.reserve(maskSize * maskSize);
-    
+
     // Обрабатываем все пиксели, кроме краевых
-    for (int y = radius; y < height - radius; ++y) {
+    for (int y = radius; y < height - radius; ++y)
+    {
         uchar *outputScanLine = outputImage.scanLine(y);
-        
-        for (int x = radius; x < width - radius; ++x) {
+
+        for (int x = radius; x < width - radius; ++x)
+        {
             // Очищаем вектор для нового окна
             windowValues.clear();
-            
+
             // Собираем все значения из окна
-            for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dy = -radius; dy <= radius; ++dy)
+            {
                 const uchar *inputScanLine = inputImage.scanLine(y + dy);
-                for (int dx = -radius; dx <= radius; ++dx) {
+                for (int dx = -radius; dx <= radius; ++dx)
+                {
                     windowValues.append(inputScanLine[x + dx]);
                 }
             }
-            
+
             // Находим медианное значение
-            std::nth_element(windowValues.begin(), 
-                           windowValues.begin() + windowValues.size() / 2,
-                           windowValues.end());
-            
+            std::nth_element(windowValues.begin(),
+                             windowValues.begin() + windowValues.size() / 2,
+                             windowValues.end());
+
             // Медиана - средний элемент отсортированного массива
             uchar medianValue = windowValues[windowValues.size() / 2];
-            
+
             // Записываем результат
             outputScanLine[x] = medianValue;
         }
     }
-    
+
     return outputImage;
 }
 
@@ -191,24 +428,7 @@ QImage Filters::apply_uniform_area_smoothing(QImage &inputImage)
             outputImage.scanLine(y)[x] = newBrightness;
         }
     }
-
-    // Копируем краевые пиксели без изменений
-    for (int y = 0; y < height; ++y)
-    {
-        uchar *outputScanLine = outputImage.scanLine(y);
-        const uchar *inputScanLine = inputImage.scanLine(y);
-
-        for (int x = 0; x < width; ++x)
-        {
-            // Если пиксель на краю, копируем исходное значение
-            if (y < bigRadius || y >= height - bigRadius ||
-                x < bigRadius || x >= width - bigRadius)
-            {
-                outputScanLine[x] = inputScanLine[x];
-            }
-        }
-    }
-
+    
     return outputImage;
 }
 

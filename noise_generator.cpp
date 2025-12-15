@@ -19,12 +19,8 @@
  * @param noiseLevel Уровень шума (0.25, 0.5, 0.75)
  * @param seed Начальное значение для ГПСЧ default(0 -> (new int))
  * @return Зашумленное изображение  (аддитивный шум)
- *
- * Алгоритм соответствует спецификации:
- * 1. Создается шумовое поле WxH со случайными значениями (wight x hight)
- * 2. Вычисляется математическое ожидание шумового поля
- * 3. Для каждого пикселя применяется формула с контролем диапазона [0, 255]
- * 4. Осуществляется перенос переполнения/недополнения (error diffusion)
+ *TODO доплнить документацию
+ * Алгоритм соответствует спецификации: (переписан)
  */
 QImage NoiseGenerator::generateAdditiveNoise(QImage &inputImage, double eta, quint32 seed)
 {    
@@ -127,8 +123,8 @@ QImage NoiseGenerator::generateAdditiveNoise(QImage &inputImage, double eta, qui
  * @brief Генерирует импульсный шум на изображении с заданным уровнем энергии
  * @param inputImage Входное изображение
  * @param noiseLevel Уровень шума (0.25, 0.5, 0.75)
- * @param type Тип импульсного шума (Salt, Pepper, SaltAndPepper)
- * @param intensity Интенсивность шума (Point, Line)
+ * @param type Тип импульсного шума (salt, pepper, salt_and_pepper)
+ * @param form Интенсивность шума (point, line)
  * @param seed Начальное значение для ГПСЧ default(0 -> (new int))
  * @return Зашумленное изображение (импульсный шум)
  *
@@ -140,7 +136,7 @@ QImage NoiseGenerator::generateAdditiveNoise(QImage &inputImage, double eta, qui
  * 5. Генерируются координаты шума и применяется шум к изображению
  * 6. Для строкового шума генерируется линия заданной длины
  */
-QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLevel, ImpulseNoiseType type, ImpulseNoiseIntensity intensity, quint32 seed)
+QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLevel, inmpulse_noise_type type, impulse_noise_form form, quint32 seed)
 {
     QImage image = inputImage.convertToFormat(QImage::Format_Grayscale8);
     QImage image_n = image.copy();
@@ -183,7 +179,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
     mo_noise = mo_noise / N2;
     qDebug() << "Математическое ожидание шумового поля (MO_ш):" << mo_noise;
 
-    if((type == ImpulseNoiseType::Salt) &&  (intensity == ImpulseNoiseIntensity::Point)){
+    if((type == inmpulse_noise_type::salt) &&  (form == impulse_noise_form::point)){
         // Вычисляем B_text (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
@@ -221,8 +217,9 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
                 
                 // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
                 //          << "), добавлено:" << addedNoisePixels 
-                //          << ", η:" << curreneta
-                //          << ", need η:" << noiseLevel;
+                //          << ", щас η:" << curreneta
+                //          << ", need η:" << noiseLevel
+                //          << "size added " << x_y_set.size();
         }
         
         qDebug() << "Итоговые параметры шума:";
@@ -232,7 +229,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
     }
 
 
-    if((type == ImpulseNoiseType::Salt) &&  (intensity == ImpulseNoiseIntensity::Line)){
+    if((type == inmpulse_noise_type::salt) &&  (form == impulse_noise_form::line)){
         // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
@@ -279,7 +276,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
         qDebug() << "Общее η:" << curreneta;
     }
 
-    if((type == ImpulseNoiseType::Pepper) &&  (intensity == ImpulseNoiseIntensity::Point)){
+    if((type == inmpulse_noise_type::pepper) &&  (form == impulse_noise_form::point)){
         // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
@@ -319,7 +316,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
     }
 
 
-    if((type == ImpulseNoiseType::Pepper) &&  (intensity == ImpulseNoiseIntensity::Line)){
+    if((type == inmpulse_noise_type::pepper) &&  (form == impulse_noise_form::line)){
         // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
@@ -366,7 +363,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
         qDebug() << "Общее η:" << curreneta;
 
     }
-    if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Point)){
+    if((type == inmpulse_noise_type::salt_and_pepper) &&  (form == impulse_noise_form::point)){
         // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
@@ -416,7 +413,7 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
         qDebug() << "Итоговые параметры шума:";
         qDebug() << "Общее η:" << curreneta;
     }
-    if((type == ImpulseNoiseType::SaltAndPepper) &&  (intensity == ImpulseNoiseIntensity::Line)){
+    if((type == inmpulse_noise_type::salt_and_pepper) &&  (form == impulse_noise_form::line)){
         // Вычисляем B_ish (сумма квадратов значений яркости исходного изображения)
         double B_ish = 0.0;
         for (int y = 0; y < i_height; y++) {
