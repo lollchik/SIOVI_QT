@@ -1,11 +1,5 @@
 #include "main_window.h"
 
-// #define low = 0.25
-// #define medium = 0.5
-// #define hight = 0.75
-
-
-
 void MainWindow::setupUI()
 {
     centralWidget = new QWidget(this);

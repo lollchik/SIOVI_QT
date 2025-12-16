@@ -239,8 +239,8 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
             }
         }
         
-        // Целевое значение η (можно задать как параметр)
-        double targeeta = noiseLevel; // или другое значение
+        // Целевое значение η 
+        double targeeta = noiseLevel;
         
         // Добавляем шум до достижения целевого η
         double curreneta = 0.0;
@@ -257,12 +257,16 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
                 x_y_set.insert(std::make_pair(x,y));
                 for(int i = 0 ; i<line_size ; i++){
                     int originalValue = qGray(image.pixel(x+i, y));
+                    
                     // Рассчитываем вклад этого пикселя в η
                     double contribution = pow(255 - originalValue, 2);
                     double newEta = curreneta + ( contribution / B_ish );
                     // Устанавливаем пиксель в 255 (белый)
                     image_n.setPixel(x+i, y, qRgb(255, 255, 255));
                     curreneta = newEta;
+                    
+                    x_y_set.insert(std::make_pair(x+i,y));
+                    
                     // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
                     //          << ", η:" << curreneta
                     //          << ", need η:" << noiseLevel;
@@ -286,8 +290,8 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
             }
         }
         
-        // Целевое значение η (можно задать как параметр)
-        double targeeta = noiseLevel; // или другое значение
+        // Целевое значение η 
+        double targeeta = noiseLevel;
         
         // Добавляем шум до достижения целевого η
         double curreneta = 0.0;
@@ -350,6 +354,9 @@ QImage NoiseGenerator::generateImpulseNoise(QImage &inputImage, double noiseLeve
                     
                     image_n.setPixel(x+i, y, qRgb(0, 0, 0));// set "pepper" pixel
                     curreneta = newEta;
+                    
+                    x_y_set.insert(std::make_pair(x+i,y));
+
                     // qDebug() << "Добавлен шум в пиксель (" << x << "," << y 
                     //          << ", η:" << curreneta
                     //          << ", need η:" << noiseLevel;

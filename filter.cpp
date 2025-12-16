@@ -3,7 +3,6 @@
 QImage Filters::erosion(const QImage &inputImage, int maskSize,
                       StructuringElement elementType)
 {
-    // Проверка формата
     if (inputImage.format() != QImage::Format_Grayscale8)
     {
         qWarning() << "Изображение должно быть в формате Format_Grayscale8";
@@ -24,7 +23,7 @@ QImage Filters::erosion(const QImage &inputImage, int maskSize,
     QImage outputImage(width, height, QImage::Format_Grayscale8);
     outputImage.fill(255); // Изначально все фон (белый)
 
-    // Обрабатываем внутренние пиксели (исключая границы)
+    //обработка ИЗО начиная с 1 элемента, являющимся не краевым
     for (int y = radius; y < height - radius; ++y)
     {
         const uchar *inputLine = inputImage.scanLine(y);
@@ -41,7 +40,7 @@ QImage Filters::erosion(const QImage &inputImage, int maskSize,
             }
 
             // Проверяем окрестность
-            bool allForeground = true;
+            bool is_not_background = true;
 
             for (int dy = -radius; dy <= radius; ++dy)
             {
@@ -49,7 +48,7 @@ QImage Filters::erosion(const QImage &inputImage, int maskSize,
 
                 for (int dx = -radius; dx <= radius; ++dx)
                 {
-                    // Если позиция активна в маске
+                    // если совпадает с положением 1 по маске
                     if (mask[dy + radius][dx + radius])
                     {
                         uchar neighborValue = neighborLine[x + dx];
@@ -57,17 +56,17 @@ QImage Filters::erosion(const QImage &inputImage, int maskSize,
                         // Если хотя бы один сосед - фон
                         if (neighborValue<=127)
                         {
-                            allForeground = false;
+                            is_not_background = false;
                             break;
                         }
                     }
                 }
-                if (!allForeground)
+                if (!is_not_background)
                     break;
             }
 
-            // Результат эрозии
-            outputLine[x] = allForeground ? 255 : 0;
+            //  запись результатоy
+            outputLine[x] = is_not_background ? 255 : 0;
         }
     }
 
@@ -76,7 +75,6 @@ QImage Filters::erosion(const QImage &inputImage, int maskSize,
 
 QImage Filters::dilation(const QImage &inputImage, int maskSize, StructuringElement elementType)
 {
-    // Проверка формата
     if (inputImage.format() != QImage::Format_Grayscale8)
     {
         qWarning() << "Изображение должно быть в формате Format_Grayscale8";
@@ -106,7 +104,7 @@ QImage Filters::dilation(const QImage &inputImage, int maskSize, StructuringElem
         for (int x = radius; x < width - radius; ++x)
         {
             // Проверяем окрестность текущего пикселя
-            bool hasForeground = false;
+            bool is_not_background = false;
 
             for (int dy = -radius; dy <= radius; ++dy)
             {
@@ -114,25 +112,22 @@ QImage Filters::dilation(const QImage &inputImage, int maskSize, StructuringElem
 
                 for (int dx = -radius; dx <= radius; ++dx)
                 {
-                    // Если позиция активна в маске
                     if (mask[dy + radius][dx + radius])
                     {
                         uchar neighborValue = neighborLine[x + dx];
-
                         // Если хотя бы один сосед - объект
                         if (neighborValue > 127)
                         {
-                            hasForeground = true;
+                            is_not_background = true;
                             break;
                         }
                     }
                 }
-                if (hasForeground)
+                if (is_not_background)
                     break;
             }
 
-            // Результат дилатации
-            outputLine[x] = hasForeground ? 255 : 0;
+            outputLine[x] = is_not_background ? 255 : 0;
         }
     }
 
@@ -145,7 +140,6 @@ QImage Filters::apply_sharpening_Filter(const QImage& inputImage, double A, bool
         return QImage();
     }
     
-    // Конвертируем входное изображение в Grayscale8 если нужно
     QImage grayImage = inputImage;
     if (inputImage.format() != QImage::Format_Grayscale8) {
         grayImage = inputImage.convertToFormat(QImage::Format_Grayscale8);
@@ -172,7 +166,7 @@ QImage Filters::apply_sharpening_Filter(const QImage& inputImage, double A, bool
     int srcBytesPerLine = grayImage.bytesPerLine();
     int dstBytesPerLine = outputImage.bytesPerLine();
     
-    // Обрабатываем центральную часть изображения (исключая границы)
+    // обработка исключая краевые пиксели
     for (int y = 1; y < height - 1; ++y) {
         for (int x = 1; x < width - 1; ++x) {
             int srcIndex = y * srcBytesPerLine + x;
