@@ -1,508 +1,490 @@
 #include <iostream>
 #include <vector>
-#include <cmath>
 #include <complex>
-#include <algorithm>
-#include <fstream>
+#include <cmath>
 #include <cstring>
-#include <png.h>
-//g++ ../main_bpf.cpp -o bpf_1 -lpng
-using namespace std;
+#include <string>
 
-// Тип для комплексных чисел
-using Complex = complex<double>;
-using Matrix = vector<vector<Complex>>;
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
 
-const double PI = 3.14159265358979323846;
-
-// ================================
-// 1. PNG ЧТЕНИЕ/ЗАПИСЬ
-// ================================
-
-/**
- * Чтение PNG изображения в матрицу комплексных чисел
- * Изображение конвертируется в градации серого
- */
-Matrix readPNGToMatrix(const string& filename) {
-    FILE* fp = fopen(filename.c_str(), "rb");
-    if (!fp) {
-        throw runtime_error("Не удалось открыть файл: " + filename);
-    }
+class FFT2D {
+public:
+    static const int N = 512;
     
-    // Проверка сигнатуры PNG
-    png_byte header[8];
-    fread(header, 1, 8, fp);
-    if (png_sig_cmp(header, 0, 8)) {
-        fclose(fp);
-        throw runtime_error("Файл не является PNG: " + filename);
-    }
-    
-    // Инициализация структур libpng
-    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) {
-        fclose(fp);
-        throw runtime_error("Ошибка создания png_struct");
-    }
-    
-    png_infop info = png_create_info_struct(png);
-    if (!info) {
-        png_destroy_read_struct(&png, NULL, NULL);
-        fclose(fp);
-        throw runtime_error("Ошибка создания png_info");
-    }
-    
-    if (setjmp(png_jmpbuf(png))) {
-        png_destroy_read_struct(&png, &info, NULL);
-        fclose(fp);
-        throw runtime_error("Ошибка во время чтения PNG");
-    }
-    
-    png_init_io(png, fp);
-    png_set_sig_bytes(png, 8);
-    png_read_info(png, info);
-    
-    int width = png_get_image_width(png, info);
-    int height = png_get_image_height(png, info);
-    png_byte color_type = png_get_color_type(png, info);
-    png_byte bit_depth = png_get_bit_depth(png, info);
-    
-    // Конвертируем в 8-bit grayscale если нужно
-    if (color_type == PNG_COLOR_TYPE_PALETTE) {
-        png_set_palette_to_rgb(png);
-    }
-    if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_RGB_ALPHA) {
-        png_set_rgb_to_gray_fixed(png, 1, -1, -1);
-    }
-    if (bit_depth == 16) {
-        png_set_strip_16(png);
-    }
-    if (color_type & PNG_COLOR_MASK_ALPHA) {
-        png_set_strip_alpha(png);
-    }
-    
-    png_read_update_info(png, info);
-    
-    // Чтение строк изображения
-    png_bytep* row_pointers = new png_bytep[height];
-    for (int y = 0; y < height; y++) {
-        row_pointers[y] = new png_byte[png_get_rowbytes(png, info)];
-    }
-    
-    png_read_image(png, row_pointers);
-    fclose(fp);
-    
-    // Создаем матрицу (обрезаем до 512x512 если нужно)
-    int N = min(width, height);
-    N = min(N, 512); // Ограничиваем размер для БПФ
-    
-    Matrix image(N, vector<Complex>(N));
-    
-    for (int y = 0; y < N; y++) {
-        for (int x = 0; x < N; x++) {
-            double pixel = row_pointers[y][x] / 255.0; // Нормализуем к [0, 1]
-            image[x][y] = Complex(pixel, 0);
+    struct Image {
+        float data[N][N];
+        
+        Image() {
+            memset(data, 0, sizeof(data));
         }
-    }
-    
-    // Освобождаем память
-    for (int y = 0; y < height; y++) {
-        delete[] row_pointers[y];
-    }
-    delete[] row_pointers;
-    png_destroy_read_struct(&png, &info, NULL);
-    
-    cout << "Загружено изображение " << filename 
-         << " размером " << N << "x" << N << endl;
-    
-    return image;
-}
-
-/**
- * Сохранение матрицы в PNG файл
- */
-void saveMatrixToPNG(const Matrix& matrix, const string& filename) {
-    int N = matrix.size();
-    
-    FILE* fp = fopen(filename.c_str(), "wb");
-    if (!fp) {
-        throw runtime_error("Не удалось создать файл: " + filename);
-    }
-    
-    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) {
-        fclose(fp);
-        throw runtime_error("Ошибка создания png_struct для записи");
-    }
-    
-    png_infop info = png_create_info_struct(png);
-    if (!info) {
-        png_destroy_write_struct(&png, NULL);
-        fclose(fp);
-        throw runtime_error("Ошибка создания png_info для записи");
-    }
-    
-    if (setjmp(png_jmpbuf(png))) {
-        png_destroy_write_struct(&png, &info);
-        fclose(fp);
-        throw runtime_error("Ошибка во время записи PNG");
-    }
-    
-    png_init_io(png, fp);
-    
-    // Настройка заголовка PNG
-    png_set_IHDR(
-        png, info,
-        N, N, 8, PNG_COLOR_TYPE_GRAY,
-        PNG_INTERLACE_NONE,
-        PNG_COMPRESSION_TYPE_DEFAULT,
-        PNG_FILTER_TYPE_DEFAULT
-    );
-    
-    png_write_info(png, info);
-    
-    // Подготовка данных для записи
-    png_bytep* row_pointers = new png_bytep[N];
-    for (int y = 0; y < N; y++) {
-        row_pointers[y] = new png_byte[N];
-        for (int x = 0; x < N; x++) {
-            // Нормализуем и обрезаем значения
-            double value = real(matrix[x][y]);
-            value = max(0.0, min(1.0, value)); // Обрезаем к [0, 1]
-            row_pointers[y][x] = static_cast<png_byte>(value * 255);
+        
+        bool loadFromFile(const std::string& filename) {
+            int width, height, channels;
+            unsigned char* imgData = stbi_load(filename.c_str(), &width, &height, &channels, 0);
+            
+            if (!imgData) {
+                std::cerr << "Ошибка загрузки: " << filename << std::endl;
+                return false;
+            }
+            
+            std::cout << "Загружено: " << width << "x" << height << ", каналов: " << channels << std::endl;
+            
+            // Конвертируем в оттенки серого и масштабируем
+            std::vector<float> grayData(width * height);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int idx = y * width + x;
+                    unsigned char r = imgData[idx * channels];
+                    unsigned char g = channels > 1 ? imgData[idx * channels + 1] : r;
+                    unsigned char b = channels > 2 ? imgData[idx * channels + 2] : r;
+                    
+                    // Формула для преобразования в оттенки серого
+                    grayData[idx] = (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f;
+                }
+            }
+            
+            // Масштабируем до нужного размера
+            if (width != N || height != N) {
+                std::cout << "Масштабирую до " << N << "x" << N << std::endl;
+                
+                // Билинейная интерполяция
+                for (int y = 0; y < N; y++) {
+                    float fy = (float)y / N * (height - 1);
+                    int y0 = (int)fy;
+                    int y1 = std::min(y0 + 1, height - 1);
+                    float ay = fy - y0;
+                    
+                    for (int x = 0; x < N; x++) {
+                        float fx = (float)x / N * (width - 1);
+                        int x0 = (int)fx;
+                        int x1 = std::min(x0 + 1, width - 1);
+                        float ax = fx - x0;
+                        
+                        float v00 = grayData[y0 * width + x0];
+                        float v10 = grayData[y1 * width + x0];
+                        float v01 = grayData[y0 * width + x1];
+                        float v11 = grayData[y1 * width + x1];
+                        
+                        data[y][x] = (1 - ax) * (1 - ay) * v00 +
+                                     ax * (1 - ay) * v01 +
+                                     (1 - ax) * ay * v10 +
+                                     ax * ay * v11;
+                    }
+                }
+            } else {
+                // Прямая загрузка если размер совпадает
+                for (int y = 0; y < N; y++) {
+                    for (int x = 0; x < N; x++) {
+                        data[y][x] = grayData[y * width + x];
+                    }
+                }
+            }
+            
+            stbi_image_free(imgData);
+            return true;
         }
-    }
+        
+        bool saveToPNG(const std::string& filename) const {
+            std::vector<unsigned char> pixelData(N * N);
+            
+            // Находим диапазон значений для нормализации
+            float minVal = data[0][0];
+            float maxVal = data[0][0];
+            
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    minVal = std::min(minVal, data[y][x]);
+                    maxVal = std::max(maxVal, data[y][x]);
+                }
+            }
+            
+            std::cout << "  Диапазон: " << minVal << " - " << maxVal << std::endl;
+            
+            // Нормализация к 0-255
+            if (maxVal - minVal < 0.0001f) {
+                // Если все значения одинаковы, сохраняем как есть
+                for (int i = 0; i < N * N; i++) {
+                    pixelData[i] = 128;
+                }
+            } else {
+                for (int y = 0; y < N; y++) {
+                    for (int x = 0; x < N; x++) {
+                        // Линейная нормализация к [0, 1], затем к [0, 255]
+                        float normalized = (data[y][x] - minVal) / (maxVal - minVal);
+                        normalized = std::max(0.0f, std::min(1.0f, normalized));
+                        pixelData[y * N + x] = static_cast<unsigned char>(normalized * 255);
+                    }
+                }
+            }
+            
+            return stbi_write_png(filename.c_str(), N, N, 1, pixelData.data(), N) != 0;
+        }
+        
+        void createTestImage() {
+            std::cout << "Создаю тестовое изображение..." << std::endl;
+            
+            // Четкое черно-белое изображение
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    // Белый фон
+                    float value = 1.0f;
+                    
+                    // Черный квадрат в центре
+                    if (x > 150 && x < 350 && y > 150 && y < 350) {
+                        value = 0.0f;
+                    }
+                    
+                    // Белый круг
+                    float dx = x - N/2;
+                    float dy = y - N/3;
+                    if (dx*dx + dy*dy < 60*60) {
+                        value = 1.0f;
+                    }
+                    
+                    // Черная горизонтальная линия
+                    if (abs(y - 400) < 2) {
+                        value = 0.0f;
+                    }
+                    
+                    // Черная вертикальная линия
+                    if (abs(x - 100) < 2) {
+                        value = 0.0f;
+                    }
+                    
+                    data[y][x] = value;
+                }
+            }
+        }
+        
+        void printStats() const {
+            float minVal = data[0][0];
+            float maxVal = data[0][0];
+            double sum = 0;
+            
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    minVal = std::min(minVal, data[y][x]);
+                    maxVal = std::max(maxVal, data[y][x]);
+                    sum += data[y][x];
+                }
+            }
+            
+            std::cout << "  Диапазон: " << minVal << " - " << maxVal 
+                      << ", Среднее: " << sum/(N*N) << std::endl;
+        }
+    };
     
-    png_write_image(png, row_pointers);
-    png_write_end(png, NULL);
-    
-    // Освобождаем память
-    for (int y = 0; y < N; y++) {
-        delete[] row_pointers[y];
-    }
-    delete[] row_pointers;
-    
-    png_destroy_write_struct(&png, &info);
-    fclose(fp);
-    
-    cout << "Сохранено изображение: " << filename << endl;
-}
-
-// ================================
-// 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (остаются без изменений)
-// ================================
-
-void applyShiftMatrix(Matrix& image) {
-    int N = image.size();
-    for (int x = 0; x < N; x++) {
+    // Основная функция фильтрации
+    static Image applyFilter(const Image& input, int filterType, int param) {
+        std::cout << "Применение " << (filterType == 0 ? "высокочастотного" : "низкочастотного") 
+                  << " фильтра с параметром " << param << std::endl;
+        
+        // Шаг 1: Умножение на (-1)^(x+y)
+        Image multiplied;
         for (int y = 0; y < N; y++) {
-            if ((x + y) % 2 == 1) {
-                image[x][y] *= -1.0;
+            for (int x = 0; x < N; x++) {
+                float sign = ((x + y) % 2 == 0) ? 1.0f : -1.0f;
+                multiplied.data[y][x] = input.data[y][x] * sign;
+            }
+        }
+        
+        // Шаг 2: Прямое БПФ
+        std::vector<std::complex<float>> spectrum(N * N);
+        forwardDFT(multiplied, spectrum);
+        
+        // Шаг 3: Применение фильтра
+        if (filterType == 0) {
+            // Высокочастотная фильтрация: обнуляем центральное окно
+            int halfSize = param / 2;
+            int centerX = N / 2;
+            int centerY = N / 2;
+            
+            std::cout << "Обнуление центра " << param << "x" << param << std::endl;
+            
+            for (int dy = -halfSize; dy <= halfSize; dy++) {
+                for (int dx = -halfSize; dx <= halfSize; dx++) {
+                    int x = (centerX + dx + N) % N;
+                    int y = (centerY + dy + N) % N;
+                    spectrum[y * N + x] = std::complex<float>(0.0f, 0.0f);
+                }
+            }
+        } else {
+            // Низкочастотная фильтрация: обнуляем периметр
+            std::cout << "Обнуление периметра шириной " << param << " пикселей" << std::endl;
+            
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    if (x < param || x >= N - param || y < param || y >= N - param) {
+                        spectrum[y * N + x] = std::complex<float>(0.0f, 0.0f);
+                    }
+                }
+            }
+        }
+        
+        // Шаг 4: Обратное БПФ
+        Image processed;
+        inverseDFT(spectrum, processed);
+        
+        // Шаг 5 и 6: Умножение на (-1)^(x+y) и нормализация
+        Image result;
+        
+        // Сначала умножаем на (-1)^(x+y)
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                float sign = ((x + y) % 2 == 0) ? 1.0f : -1.0f;
+                float val = processed.data[y][x] * sign;
+                result.data[y][x] = val;
+            }
+        }
+        
+        // Нормализация для улучшения контраста
+        normalizeResult(result);
+        
+        return result;
+    }
+    
+private:
+    // Рекурсивный алгоритм БПФ
+    static void fft(std::vector<std::complex<float>>& a, bool invert) {
+        int n = (int)a.size();
+        if (n == 1) return;
+
+        std::vector<std::complex<float>> a0(n/2), a1(n/2);
+        for (int i = 0, j = 0; i < n; i += 2, ++j) {
+            a0[j] = a[i];
+            a1[j] = a[i+1];
+        }
+        
+        fft(a0, invert);
+        fft(a1, invert);
+
+        float ang = 2 * M_PI / n * (invert ? 1.0f : -1.0f);
+        std::complex<float> w(1.0f, 0.0f);
+        std::complex<float> wn(std::cos(ang), std::sin(ang));
+        
+        for (int i = 0; i < n/2; ++i) {
+            std::complex<float> temp = w * a1[i];
+            a[i] = a0[i] + temp;
+            a[i + n/2] = a0[i] - temp;
+            w = w * wn;
+            
+            // Для обратного преобразования делим на 2
+            if (invert) {
+                a[i] = a[i] * 0.5f;
+                a[i + n/2] = a[i + n/2] * 0.5f;
             }
         }
     }
-}
-
-void printImageStats(const Matrix& img, const string& name) {
-    double minVal = 1e9, maxVal = -1e9, sum = 0;
-    int N = img.size();
     
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            double val = abs(img[i][j]);
-            minVal = min(minVal, val);
-            maxVal = max(maxVal, val);
-            sum += val;
+    // Прямое 2D БПФ
+    static void forwardDFT(const Image& img, std::vector<std::complex<float>>& spectrum) {
+        // БПФ по строкам
+        std::vector<std::complex<float>> row(N);
+        
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                row[x] = std::complex<float>(img.data[y][x], 0.0f);
+            }
+            fft(row, false);
+            
+            for (int x = 0; x < N; x++) {
+                spectrum[y * N + x] = row[x];
+            }
         }
-    }
-    
-    cout << name << ": min=" << minVal << ", max=" << maxVal 
-         << ", avg=" << sum/(N*N) << endl;
-}
-
-// ================================
-// 3. БПФ ФУНКЦИИ (остаются без изменений)
-// ================================
-
-vector<Complex> fft(const vector<Complex>& input) {
-    int N = input.size();
-    
-    if (N == 1) {
-        return input;
-    }
-    
-    // if ((N & (N - 1)) != 0) {
-    //     throw runtime_error("Размер должен быть степенью двойки");
-    // }
-    
-    vector<Complex> even(N/2), odd(N/2);
-    for (int i = 0; i < N/2; i++) {
-        even[i] = input[2*i];
-        odd[i] = input[2*i + 1];
-    }
-    
-    vector<Complex> evenTransformed = fft(even);
-    vector<Complex> oddTransformed = fft(odd);
-    
-    vector<Complex> output(N);
-    for (int k = 0; k < N/2; k++) {
-        Complex t = polar(1.0, -2.0 * PI * k / N) * oddTransformed[k];
-        output[k] = evenTransformed[k] + t;
-        output[k + N/2] = evenTransformed[k] - t;
-    }
-    
-    return output;
-}
-
-vector<Complex> ifft(const vector<Complex>& input) {
-    int N = input.size();
-    
-    if (N == 1) {
-        return input;
-    }
-    
-    vector<Complex> even(N/2), odd(N/2);
-    for (int i = 0; i < N/2; i++) {
-        even[i] = input[2*i];
-        odd[i] = input[2*i + 1];
-    }
-    
-    vector<Complex> evenTransformed = ifft(even);
-    vector<Complex> oddTransformed = ifft(odd);
-    
-    vector<Complex> output(N);
-    for (int k = 0; k < N/2; k++) {
-        Complex t = polar(1.0, 2.0 * PI * k / N) * oddTransformed[k];
-        output[k] = evenTransformed[k] + t;
-        output[k + N/2] = evenTransformed[k] - t;
-    }
-    
-    for (int i = 0; i < N; i++) {
-        output[i] /= 2.0;
-    }
-    
-    return output;
-}
-
-Matrix fft2d(const Matrix& input) {
-    int N = input.size();
-    Matrix output(N, vector<Complex>(N));
-    
-    for (int i = 0; i < N; i++) {
-        vector<Complex> row(N);
-        for (int j = 0; j < N; j++) {
-            row[j] = input[i][j];
-        }
-        vector<Complex> rowTransformed = fft(row);
-        for (int j = 0; j < N; j++) {
-            output[i][j] = rowTransformed[j];
-        }
-    }
-    
-    for (int j = 0; j < N; j++) {
-        vector<Complex> col(N);
-        for (int i = 0; i < N; i++) {
-            col[i] = output[i][j];
-        }
-        vector<Complex> colTransformed = fft(col);
-        for (int i = 0; i < N; i++) {
-            output[i][j] = colTransformed[i];
-        }
-    }
-    
-    return output;
-}
-
-Matrix ifft2d(const Matrix& input) {
-    int N = input.size();
-    Matrix output(N, vector<Complex>(N));
-    
-    for (int i = 0; i < N; i++) {
-        vector<Complex> row(N);
-        for (int j = 0; j < N; j++) {
-            row[j] = input[i][j];
-        }
-        vector<Complex> rowTransformed = ifft(row);
-        for (int j = 0; j < N; j++) {
-            output[i][j] = rowTransformed[j];
-        }
-    }
-    
-    for (int j = 0; j < N; j++) {
-        vector<Complex> col(N);
-        for (int i = 0; i < N; i++) {
-            col[i] = output[i][j];
-        }
-        vector<Complex> colTransformed = ifft(col);
-        for (int i = 0; i < N; i++) {
-            output[i][j] = colTransformed[i];
-        }
-    }
-    
-    return output;
-}
-
-// ================================
-// 4. ФИЛЬТРЫ В ЧАСТОТНОЙ ОБЛАСТИ
-// ================================
-
-void applyHighPassFilter(Matrix& spectrum, int windowSize) {
-    int N = spectrum.size();
-    int center = N / 2;
-    int halfWindow = windowSize / 2;
-    
-    for (int i = center - halfWindow; i < center + halfWindow; i++) {
-        for (int j = center - halfWindow; j < center + halfWindow; j++) {
-            if (i >= 0 && i < N && j >= 0 && j < N) {
-                spectrum[i][j] = 0.0;
+        
+        // БПФ по столбцам
+        std::vector<std::complex<float>> col(N);
+        
+        for (int x = 0; x < N; x++) {
+            for (int y = 0; y < N; y++) {
+                col[y] = spectrum[y * N + x];
+            }
+            fft(col, false);
+            
+            for (int y = 0; y < N; y++) {
+                spectrum[y * N + x] = col[y];
             }
         }
     }
-}
-
-void applyLowPassFilter(Matrix& spectrum, int borderWidth) {
-    int N = spectrum.size();
     
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            if (i < borderWidth || i >= N - borderWidth ||
-                j < borderWidth || j >= N - borderWidth) {
-                spectrum[i][j] = 0.0;
+    // Обратное 2D БПФ
+    static void inverseDFT(const std::vector<std::complex<float>>& spectrum, Image& img) {
+        // Обратное БПФ по строкам
+        std::vector<std::complex<float>> row(N);
+        
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                row[x] = spectrum[y * N + x];
+            }
+            fft(row, true);
+            
+            for (int x = 0; x < N; x++) {
+                img.data[y][x] = row[x].real();
+            }
+        }
+        
+        // Обратное БПФ по столбцам
+        std::vector<std::complex<float>> col(N);
+        
+        for (int x = 0; x < N; x++) {
+            for (int y = 0; y < N; y++) {
+                col[y] = std::complex<float>(img.data[y][x], 0.0f);
+            }
+            fft(col, true);
+            
+            for (int y = 0; y < N; y++) {
+                img.data[y][x] = col[y].real();
             }
         }
     }
-}
+    
+    // Нормализация результата
+    static void normalizeResult(Image& img) {
+        float minVal = img.data[0][0];
+        float maxVal = img.data[0][0];
+        
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                minVal = std::min(minVal, img.data[y][x]);
+                maxVal = std::max(maxVal, img.data[y][x]);
+            }
+        }
+        
+        float range = maxVal - minVal;
+        if (range < 0.0001f) {
+            // Все значения одинаковы
+            float avg = (minVal + maxVal) / 2.0f;
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    img.data[y][x] = avg;
+                }
+            }
+        } else {
+            // Нормализуем к [0, 1]
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    img.data[y][x] = (img.data[y][x] - minVal) / range;
+                }
+            }
+        }
+    }
+};
 
-// ================================
-// 5. ОСНОВНАЯ ПРОЦЕДУРА ФИЛЬТРАЦИИ
-// ================================
-
-Matrix filterImage(const Matrix& input, int filterType, int filterParam) {
-    int N = input.size();
-    Matrix result = input;
+int main() {
+    std::cout << "========================================" << std::endl;
+    std::cout << "   ФИЛЬТРАЦИЯ ИЗОБРАЖЕНИЙ БПФ" << std::endl;
+    std::cout << "   Размер: 512x512 пикселей" << std::endl;
+    std::cout << "========================================\n" << std::endl;
     
-    cout << "\n=== Начало обработки изображения ===" << endl;
-    printImageStats(input, "Исходное изображение");
+    FFT2D::Image inputImage;
     
-    // Шаг 1: Умножение на (-1)^(x+y)
-    cout << "1. Умножение на (-1)^(x+y)..." << endl;
-    applyShiftMatrix(result);
+    // Выбор режима
+    std::cout << "1. Загрузить изображение из файла" << std::endl;
+    std::cout << "2. Использовать тестовое изображение" << std::endl;
+    std::cout << "Выберите (1 или 2): ";
     
-    // Шаг 2: Прямое 2D БПФ
-    cout << "2. Вычисление прямого 2D БПФ..." << endl;
-    Matrix spectrum = fft2d(result);
-    printImageStats(spectrum, "Спектр (после БПФ)");
+    int choice;
+    std::cin >> choice;
     
-    // Шаг 3: Применение фильтра
-    cout << "3. Применение фильтра..." << endl;
-    if (filterType == 0) {
-        cout << "   Высокочастотный фильтр, размер окна: " << filterParam << endl;
-        applyHighPassFilter(spectrum, filterParam);
+    if (choice == 1) {
+        std::string filename;
+        std::cout << "Введите имя файла (PNG, JPG, BMP): ";
+        std::cin >> filename;
+        
+        if (!inputImage.loadFromFile(filename)) {
+            std::cout << "Не удалось загрузить файл. Создаю тестовое изображение." << std::endl;
+            inputImage.createTestImage();
+        }
     } else {
-        cout << "   Низкочастотный фильтр, ширина полосы: " << filterParam << endl;
-        applyLowPassFilter(spectrum, filterParam);
+        inputImage.createTestImage();
     }
-    printImageStats(spectrum, "Спектр (после фильтра)");
     
-    // Шаг 4: Обратное 2D БПФ
-    cout << "4. Вычисление обратного 2D БПФ..." << endl;
-    result = ifft2d(spectrum);
+    // Сохраняем исходное изображение
+    inputImage.saveToPNG("original.png");
+    std::cout << "\nИсходное изображение сохранено в original.png" << std::endl;
+    inputImage.printStats();
     
-    // Шаг 5: Выделение вещественной части
-    cout << "5. Выделение вещественной части..." << endl;
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            result[i][j] = Complex(real(result[i][j]), 0);
+    // Основной цикл фильтрации
+    while (true) {
+        std::cout << "\n=== ВЫБОР ФИЛЬТРА ===" << std::endl;
+        std::cout << "1. ВЫСОКОЧАСТОТНЫЙ фильтр (обнулить центр спектра)" << std::endl;
+        std::cout << "   Удаляет низкие частоты, подчеркивает контуры" << std::endl;
+        std::cout << "   Рекомендуемый параметр: 32-128" << std::endl;
+        
+        std::cout << "\n2. НИЗКОЧАСТОТНЫЙ фильтр (обнулить края спектра)" << std::endl;
+        std::cout << "   Удаляет высокие частоты, сглаживает изображение" << std::endl;
+        std::cout << "   Рекомендуемый параметр: 8-32" << std::endl;
+        
+        std::cout << "\n3. Выход" << std::endl;
+        std::cout << "Выберите: ";
+        
+        int filterChoice;
+        std::cin >> filterChoice;
+        
+        if (filterChoice == 3) break;
+        if (filterChoice < 1 || filterChoice > 2) continue;
+        
+        int filterType = filterChoice - 1;
+        
+        // Ввод параметра
+        int param;
+        if (filterType == 0) {
+            std::cout << "Введите размер окна для обнуления (например, 64): ";
+        } else {
+            std::cout << "Введите ширину полосы для обнуления (например, 16): ";
         }
-    }
-    
-    // Шаг 6: Умножение на (-1)^(x+y) (обратное преобразование)
-    cout << "6. Умножение на (-1)^(x+y)..." << endl;
-    applyShiftMatrix(result);
-    
-    printImageStats(result, "Результат");
-    cout << "=== Обработка завершена ===\n" << endl;
-    
-    return result;
-}
-
-// ================================
-// 6. ГЛАВНАЯ ФУНКЦИЯ
-// ================================
-
-int main(int argc, char* argv[]) {
-    try {
-        // Параметры по умолчанию
-        string inputFilename = "../test_cases/morphological_test.png";
-        string outputHighPass = "output_highpass.png";
-        string outputLowPass = "output_lowpass.png";
+        std::cin >> param;
         
-        // Можно изменить параметры через аргументы командной строки
-        if (argc > 1) inputFilename = argv[1];
-        if (argc > 2) outputHighPass = argv[2];
-        if (argc > 3) outputLowPass = argv[3];
-        
-        cout << "=== 2D БПФ обработка изображений ===" << endl;
-        cout << "Входной файл: " << inputFilename << endl;
-        cout << "Выходные файлы: " << outputHighPass << ", " << outputLowPass << endl;
-        
-        // Загрузка изображения
-        cout << "\nЗагрузка изображения..." << endl;
-        Matrix image = readPNGToMatrix(inputFilename);
-        
-        // Проверка размера (должен быть 512x512)
-        if (image.size() != 512) {
-            cout << "Предупреждение: изображение будет обрезано/обработано как 512x512" << endl;
+        // Корректировка параметра
+        if (filterType == 0) {
+            param = std::max(2, std::min(param, FFT2D::N - 2));
+            if (param % 2 != 0) param++;
+        } else {
+            param = std::max(1, std::min(param, FFT2D::N / 2));
         }
         
-        // Пример 1: Высокочастотная фильтрация (обостряет края)
-        cout << "\n======================================" << endl;
-        cout << "ПРИМЕР 1: ВЫСОКОЧАСТОТНАЯ ФИЛЬТРАЦИЯ" << endl;
-        cout << "======================================" << endl;
-        int windowSize = 100; // Размер окна для обнуления в центре
-        
-        Matrix highPassResult = filterImage(image, 0, windowSize);
+        // Применение фильтра
+        FFT2D::Image result = FFT2D::applyFilter(inputImage, filterType, param);
         
         // Сохранение результата
-        cout << "Сохранение высокочастотного фильтра..." << endl;
-        saveMatrixToPNG(highPassResult, outputHighPass);
+        std::string outputFile;
+        if (filterType == 0) {
+            outputFile = "highpass_" + std::to_string(param) + ".png";
+        } else {
+            outputFile = "lowpass_" + std::to_string(param) + ".png";
+        }
         
-        // Пример 2: Низкочастотная фильтрация (размытие)
-        cout << "\n=====================================" << endl;
-        cout << "ПРИМЕР 2: НИЗКОЧАСТОТНАЯ ФИЛЬТРАЦИЯ" << endl;
-        cout << "=====================================" << endl;
-        int borderWidth = 50; // Ширина полосы по краям
+        if (result.saveToPNG(outputFile)) {
+            std::cout << "✓ Результат сохранен в " << outputFile << std::endl;
+            std::cout << "Статистика результата:" << std::endl;
+            result.printStats();
+            
+            // Описание эффекта
+            std::cout << "\nЭффект фильтрации: ";
+            if (filterType == 0) {
+                std::cout << "выделены края и контуры" << std::endl;
+            } else {
+                std::cout << "изображение сглажено" << std::endl;
+            }
+        } else {
+            std::cout << "Ошибка сохранения результата!" << std::endl;
+        }
         
-        Matrix lowPassResult = filterImage(image, 1, borderWidth);
-        
-        // Сохранение результата
-        cout << "Сохранение низкочастотного фильтра..." << endl;
-        saveMatrixToPNG(lowPassResult, outputLowPass);
-        
-        // Информация о результате
-        cout << "\n=== РЕЗУЛЬТАТЫ ===" << endl;
-        cout << "1. Высокочастотная фильтрация сохранена в: " << outputHighPass << endl;
-        cout << "   - Удаляет низкие частоты (центр спектра)" << endl;
-        cout << "   - Подчеркивает края и детали" << endl;
-        cout << "   - Параметр: windowSize = " << windowSize << endl;
-        
-        cout << "\n2. Низкочастотная фильтрация сохранена в: " << outputLowPass << endl;
-        cout << "   - Удаляет высокие частоты (края спектра)" << endl;
-        cout << "   - Размывает изображение, убирает шум" << endl;
-        cout << "   - Параметр: borderWidth = " << borderWidth << endl;
-        
-        cout << "\n=== ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ ===" << endl;
-        cout << "Размер обработки: 512x512 пикселей" << endl;
-        cout << "Использован алгоритм БПФ Кули-Тьюки" << endl;
-        cout << "Все вычисления с двойной точностью" << endl;
-        
-    } catch (const exception& e) {
-        cerr << "Ошибка: " << e.what() << endl;
-        cerr << "\nИспользование: " << endl;
-        cerr << "  " << argv[0] << " [input.png] [output_highpass.png] [output_lowpass.png]" << endl;
-        cerr << "\nПример: " << endl;
-        cerr << "  " << argv[0] << " image.png result_high.png result_low.png" << endl;
-        return 1;
+        std::cout << "\nПродолжить? (y/n): ";
+        char continueChoice;
+        std::cin >> continueChoice;
+        if (continueChoice != 'y' && continueChoice != 'Y') break;
     }
+    
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "Созданные файлы:" << std::endl;
+    std::cout << "- original.png - исходное изображение" << std::endl;
+    std::cout << "- highpass_XX.png - высокочастотная фильтрация" << std::endl;
+    std::cout << "- lowpass_XX.png - низкочастотная фильтрация" << std::endl;
+    std::cout << "========================================\n" << std::endl;
     
     return 0;
 }

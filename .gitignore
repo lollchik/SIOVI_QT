@@ -42,4 +42,6 @@
 
 build/**
 build
+build_bpf/**
+build_bpf
 .*
